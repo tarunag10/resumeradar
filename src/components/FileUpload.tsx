@@ -121,8 +121,8 @@ export function FileUpload({ label, onTextExtracted, onError }: FileUploadProps)
         <input
           ref={fileInputRef}
           type='file'
-        accept={extensions.map(e => `.${e}`).join(',')}
-        onChange={handleFileSelect}
+          accept={extensions.join(',')}
+          onChange={handleFileSelect}
           className='hidden'
           aria-hidden='true'
         />
