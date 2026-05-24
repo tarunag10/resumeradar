@@ -5,6 +5,9 @@ export interface MatchHistoryEntry {
   timestamp: string;
   resumePreview: string;
   jobPostPreview: string;
+  resumeText: string;
+  jobPostText: string;
+  result: ScoringResult;
   matchScore: number;
   keywordScore: number;
   skillScore: number;
@@ -15,14 +18,18 @@ export function saveMatchToHistory(
   resumeText: string,
   jobPostText: string,
   result: ScoringResult
-): void {
+): string {
   try {
     const history = getMatchHistory();
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2);
     const entry: MatchHistoryEntry = {
-      id: Date.now().toString(36) + Math.random().toString(36).substr(2),
+      id,
       timestamp: new Date().toISOString(),
       resumePreview: resumeText.substring(0, 100) + (resumeText.length > 100 ? '...' : ''),
       jobPostPreview: jobPostText.substring(0, 100) + (jobPostText.length > 100 ? '...' : ''),
+      resumeText,
+      jobPostText,
+      result,
       matchScore: result.matchScore,
       keywordScore: result.keywordScore,
       skillScore: result.skillScore,
@@ -35,8 +42,10 @@ export function saveMatchToHistory(
     }
     
     localStorage.setItem('matchHistory', JSON.stringify(history));
+    return id;
   } catch (e) {
     console.warn('Failed to save match history:', e);
+    return '';
   }
 }
 
@@ -45,7 +54,7 @@ export function getMatchHistory(): MatchHistoryEntry[] {
   try {
     const stored = localStorage.getItem('matchHistory');
     return stored ? JSON.parse(stored) : [];
-  } catch (e) {
+  } catch {
     return [];
   }
 }

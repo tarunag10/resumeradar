@@ -1,36 +1,59 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ResumeRadar
 
-## Getting Started
+ResumeRadar is a private, browser-only resume matcher. Paste or upload a resume and a job post, choose a role mode, and get a local match report with keyword overlap, missing skills, resume quality checks, job-post insights, and safer bullet prompts.
 
-First, run the development server:
+## Features
+
+- Local resume and job-post matching with no account, backend, or external AI calls.
+- PDF and DOCX text extraction in the browser.
+- Role modes for general, software, data, product, marketing, legal/compliance, and finance roles.
+- Score breakdown across keyword coverage, skills, phrase alignment, repeated job terms, and role focus.
+- Missing skills and missing keywords.
+- Job-post insights for detected role, seniority, required/preferred skills, responsibilities, and top terms.
+- Resume quality checks for metrics, action verbs, repeated phrasing, skills visibility, and bullet readability.
+- Safer suggested bullet prompts that ask users to add details only when accurate.
+- Restorable local match history.
+- Export actions for copying, sharing, Markdown download, and JSON download.
+- Light/dark theme support.
+
+## Local-Only Design
+
+ResumeRadar runs analysis in the browser. Resume text, job text, extracted file text, match results, and history are stored only in the current browser through `localStorage`. Files are parsed client-side with `pdfjs-dist` and `mammoth`.
+
+## Development
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Useful commands:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm test
+npm run lint
+npm run build
+```
 
-## Learn More
+## Project Structure
 
-To learn more about Next.js, take a look at the following resources:
+- `src/app/page.tsx` - main single-page experience.
+- `src/components/` - input, history, results, export, scoring, and feedback UI.
+- `src/lib/scoring.ts` - local scoring, role modes, quality checks, and job insights.
+- `src/lib/documentExtractor.ts` - browser PDF/DOCX extraction.
+- `src/lib/matchHistory.ts` - local match history storage.
+- `src/lib/exportResults.ts` - Markdown, text, and JSON report formatting.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Deployment
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The project is configured as a static-friendly Next.js app and can be deployed to Vercel:
 
-## Deploy on Vercel
+```bash
+vercel deploy --prod
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Limitations
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+ResumeRadar is a guidance tool, not an ATS guarantee or hiring prediction. The score is an approximation based on visible text signals. Users should only add skills, tools, and claims that truthfully reflect their experience.

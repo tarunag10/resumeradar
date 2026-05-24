@@ -1,4 +1,4 @@
-import { STOP_WORDS, isStopWord } from './stopWords';
+import { isStopWord } from './stopWords';
 
 // Normalization mappings
 const NORMALIZATION_MAP: Record<string, string> = {

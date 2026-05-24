@@ -167,7 +167,7 @@ describe('textProcessing', () => {
     it('should find matching keywords between resume and job post', () => {
       const resume = 'Experienced Python developer with JavaScript and AWS';
       const jobPost = 'Looking for Python developer with JavaScript React and AWS experience';
-      const { matched, allJobKeywords } = calculateKeywordOverlap(resume, jobPost);
+      const { matched } = calculateKeywordOverlap(resume, jobPost);
 
       expect(matched.has('python')).toBe(true);
       expect(matched.has('aws')).toBe(true);

@@ -18,6 +18,8 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
     "public/pdf.worker.min.mjs",
+    ".playwright-mcp/**",
+    "coverage/**",
   ]),
 ]);
 

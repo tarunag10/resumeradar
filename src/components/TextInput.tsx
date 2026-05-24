@@ -33,36 +33,29 @@ export function TextInput({
     setUploadError(null); // Clear upload error when user manually types
   }, [onChange]);
 
-  const handleFileExtracted = useCallback((text: string) => {
-    onChange(text);
+  const handleFileExtracted = useCallback((text: string, mode: 'replace' | 'append' = 'replace') => {
+    onChange(mode === 'append' && value.trim() ? `${value.trim()}\n\n${text}` : text);
     setUploadError(null);
     onFileExtracted?.();
-  }, [onChange, onFileExtracted]);
+  }, [onChange, onFileExtracted, value]);
 
   const handleFileError = useCallback((error: string) => {
     setUploadError(error);
   }, []);
 
   const isValid = value.length >= minLength;
-  const progress = Math.min(100, Math.round((value.length / minLength) * 100));
 
   const inputId = `text-input-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`;
 
   return (
-    <div className='flex h-full flex-col gap-4'>
-      <div className='flex items-start justify-between gap-4'>
-        <div>
-          <label htmlFor={inputId} className='text-sm font-semibold text-[var(--foreground)]'>
-            {label}
-          </label>
-          <p id={`${inputId}-helper`} className='mt-1 text-xs text-[var(--muted)]'>
-            {helperText}
-          </p>
-        </div>
-        <div className='rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-1 text-right'>
-          <span className='block text-xs font-semibold text-[var(--foreground)]'>{wordCount.toLocaleString()}</span>
-          <span className='block text-[10px] uppercase tracking-wide text-[var(--muted)]'>words</span>
-        </div>
+    <div className='flex flex-col gap-2'>
+      <div className='flex items-center justify-between'>
+        <label htmlFor={inputId} className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+          {label}
+        </label>
+        <span className='text-xs text-gray-500 dark:text-gray-400'>
+          {charCount.toLocaleString()} chars - {wordCount.toLocaleString()} words
+        </span>
       </div>
       
       <div className='relative'>
@@ -71,7 +64,7 @@ export function TextInput({
           value={value}
           onChange={handleChange}
           placeholder={placeholder}
-          className='h-40 w-full resize-none rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] px-4 py-4 pr-11 text-sm leading-6 text-[var(--foreground)] shadow-inner shadow-slate-950/[0.02] transition-all placeholder:text-slate-400 focus:border-blue-400 focus:outline-none focus:ring-4 focus:ring-blue-500/10 md:h-72 dark:placeholder:text-slate-500'
+          className='w-full h-64 px-4 py-3 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:border-transparent placeholder-gray-400 dark:placeholder-gray-500 transition-all'
           aria-describedby={`${inputId}-helper`}
         />
         
@@ -79,7 +72,7 @@ export function TextInput({
           <button
             type='button'
             onClick={onClear}
-            className='absolute right-3 top-3 rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-slate-100 hover:text-gray-700 dark:hover:bg-slate-800 dark:hover:text-gray-200'
+            className='absolute top-3 right-3 p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors'
             aria-label={`Clear ${label}`}
           >
             <svg className='w-4 h-4' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
@@ -89,34 +82,29 @@ export function TextInput({
         )}
       </div>
 
-      <div className='space-y-2'>
-        <div className='h-1.5 overflow-hidden rounded-full bg-slate-200/70 dark:bg-slate-800'>
-          <div
-            className={`h-full rounded-full transition-all ${isValid ? 'bg-emerald-500' : 'bg-blue-500'}`}
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-        <div className='flex items-center justify-between gap-3'>
-          <p className='text-xs text-[var(--muted)]'>
-            {charCount.toLocaleString()} characters
-          </p>
+      <div className='flex items-center justify-between'>
+        <p id={`${inputId}-helper`} className='text-xs text-gray-500 dark:text-gray-400'>
+          {helperText}
+        </p>
         {!isValid && value.length > 0 && (
-          <p className='text-xs font-medium text-amber-600 dark:text-amber-400' role='status'>
-            Add {Math.max(0, minLength - value.length).toLocaleString()} more characters
+          <p className='text-xs text-amber-600 dark:text-amber-400' role='status'>
+            Add more text for better analysis
           </p>
         )}
-        </div>
       </div>
 
+      {/* File Upload Section */}
       <FileUpload 
         label={label}
+        hasExistingText={value.trim().length > 0}
         onTextExtracted={handleFileExtracted}
         onError={handleFileError}
       />
 
+      {/* Upload Error Message */}
       {uploadError && (
         <div
-          className='rounded-lg border border-red-200 bg-red-50 p-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300'
+          className='p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-xs text-red-700 dark:text-red-300'
           role='alert'
         >
           {uploadError}

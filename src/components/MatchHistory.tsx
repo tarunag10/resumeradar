@@ -5,16 +5,17 @@ import { MatchHistoryEntry, getMatchHistory, clearMatchHistory } from '@/lib/mat
 
 interface MatchHistoryProps {
   onSelectEntry?: (entry: MatchHistoryEntry) => void;
+  refreshSignal?: number;
 }
 
-export function MatchHistory({ onSelectEntry }: MatchHistoryProps) {
+export function MatchHistory({ onSelectEntry, refreshSignal = 0 }: MatchHistoryProps) {
   const [history, setHistory] = useState<MatchHistoryEntry[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   useEffect(() => {
     setHistory(getMatchHistory());
-  }, [isOpen]);
+  }, [isOpen, refreshSignal]);
 
   const handleClear = () => {
     clearMatchHistory();

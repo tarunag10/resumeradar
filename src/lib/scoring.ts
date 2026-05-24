@@ -1,18 +1,50 @@
 import { extractSkillsFromText, buildSkillLookup } from './skillDictionary';
 import { findRepeatedPhrases, calculateKeywordOverlap, extractAllPhrases, getNormalizedTokens } from './textProcessing';
 
+export type RoleMode = 'general' | 'software' | 'data' | 'product' | 'marketing' | 'legal' | 'finance';
+
+export interface ScoreBreakdownItem {
+  label: string;
+  score: number;
+  weight: number;
+  detail: string;
+}
+
+export interface ResumeQualityCheck {
+  id: string;
+  label: string;
+  status: 'pass' | 'warning' | 'info';
+  detail: string;
+  action: string;
+}
+
+export interface JobInsights {
+  seniority: string;
+  roleTitle: string;
+  requiredSkills: string[];
+  preferredSkills: string[];
+  responsibilities: string[];
+  topTerms: string[];
+}
+
 export interface ScoringResult {
   matchScore: number;
   keywordScore: number;
   skillScore: number;
   phraseScore: number;
   repeatedJobTermScore: number;
+  roleFocusScore?: number;
   repetitionPenalty: number;
+  roleMode?: RoleMode;
   matchedKeywords: Array<{ keyword: string; count: number; importance: number }>;
+  missingKeywords: Array<{ keyword: string; count: number; importance: number }>;
   missingSkills: Array<{ skill: string; category: string }>;
   matchedSkills: Array<{ skill: string; category: string }>;
   repeatedPhrases: Array<{ phrase: string; count: number; suggestion: string }>;
   suggestedBullets: string[];
+  scoreBreakdown: ScoreBreakdownItem[];
+  resumeQualityChecks: ResumeQualityCheck[];
+  jobInsights: JobInsights;
   tfidfAnalysis: {
     resumeImportantTerms: string[];
     jobPostImportantTerms: string[];
@@ -44,6 +76,48 @@ const SYNONYM_GROUPS: Map<string, Set<string>> = new Map([
   ['cloud', new Set(['cloud', 'aws', 'azure', 'gcp'])],
   ['development', new Set(['development', 'developer', 'devops', 'engineering', 'software'])],
 ]);
+
+const ROLE_PROFILES: Record<RoleMode, {
+  label: string;
+  weights: { keyword: number; skill: number; phrase: number; repeated: number; role: number };
+  focusSkills: string[];
+}> = {
+  general: {
+    label: 'General',
+    weights: { keyword: 0.35, skill: 0.30, phrase: 0.15, repeated: 0.10, role: 0 },
+    focusSkills: [],
+  },
+  software: {
+    label: 'Software',
+    weights: { keyword: 0.30, skill: 0.36, phrase: 0.12, repeated: 0.10, role: 0.07 },
+    focusSkills: ['javascript', 'typescript', 'python', 'react', 'node.js', 'aws', 'docker', 'kubernetes', 'microservices', 'ci/cd', 'rest api'],
+  },
+  data: {
+    label: 'Data',
+    weights: { keyword: 0.34, skill: 0.34, phrase: 0.10, repeated: 0.10, role: 0.07 },
+    focusSkills: ['python', 'sql', 'excel', 'tableau', 'power bi', 'data analysis', 'dashboarding', 'data visualization', 'etl', 'machine learning'],
+  },
+  product: {
+    label: 'Product',
+    weights: { keyword: 0.32, skill: 0.30, phrase: 0.13, repeated: 0.10, role: 0.10 },
+    focusSkills: ['roadmap', 'prioritization', 'user research', 'experimentation', 'product strategy', 'stakeholder management', 'requirements gathering'],
+  },
+  marketing: {
+    label: 'Marketing',
+    weights: { keyword: 0.36, skill: 0.25, phrase: 0.15, repeated: 0.12, role: 0.07 },
+    focusSkills: ['market research', 'customer segmentation', 'a/b testing', 'strategy', 'reporting', 'data analysis'],
+  },
+  legal: {
+    label: 'Legal and compliance',
+    weights: { keyword: 0.38, skill: 0.24, phrase: 0.14, repeated: 0.12, role: 0.07 },
+    focusSkills: ['stakeholder management', 'reporting', 'requirements gathering', 'critical thinking', 'communication', 'organization'],
+  },
+  finance: {
+    label: 'Finance',
+    weights: { keyword: 0.34, skill: 0.30, phrase: 0.12, repeated: 0.12, role: 0.07 },
+    focusSkills: ['excel', 'sql', 'forecasting', 'budgeting', 'reporting', 'data analysis', 'business intelligence'],
+  },
+};
 
 // Create reverse lookup: word -> canonical form
 function buildSynonymLookup(): Map<string, string> {
@@ -129,12 +203,128 @@ function extractImportantTerms(tfidfScores: Map<string, number>, threshold: numb
     .map(t => t.term);
 }
 
-export function analyzeMatch(resumeText: string, jobPostText: string): ScoringResult {
+function detectSeniority(text: string): string {
+  const lower = text.toLowerCase();
+  if (/\b(chief|head of|director|vp|vice president)\b/.test(lower)) return 'Leadership';
+  if (/\b(senior|sr\.?|lead|principal|staff)\b/.test(lower)) return 'Senior';
+  if (/\b(junior|jr\.?|entry[- ]level|graduate|intern)\b/.test(lower)) return 'Entry';
+  if (/\b(manager|management)\b/.test(lower)) return 'Manager';
+  return 'Not specified';
+}
+
+function inferRoleTitle(jobPostText: string): string {
+  const lines = jobPostText
+    .split(/\n+/)
+    .map(line => line.trim())
+    .filter(line => line.length > 0 && line.length <= 80);
+
+  const titleLine = lines.find(line => /\b(engineer|developer|analyst|manager|designer|specialist|consultant|lead|director|officer|associate|product|marketing|finance|legal|compliance)\b/i.test(line));
+  return titleLine?.replace(/^\W+|\W+$/g, '') || 'Role not detected';
+}
+
+function extractResponsibilities(jobPostText: string): string[] {
+  return jobPostText
+    .split(/\n+/)
+    .map(line => line.replace(/^[-*•\d.)\s]+/, '').trim())
+    .filter(line => /\b(responsib|build|manage|lead|own|deliver|analy[sz]e|create|develop|support|collaborate|drive|design|maintain)\b/i.test(line))
+    .slice(0, 5);
+}
+
+function extractRequiredPreferredSkills(jobPostText: string, jobSkills: Set<string>): { required: string[]; preferred: string[] } {
+  const lower = jobPostText.toLowerCase();
+  const required = new Set<string>();
+  const preferred = new Set<string>();
+
+  for (const skill of jobSkills) {
+    const index = lower.indexOf(skill);
+    const windowText = index >= 0 ? lower.slice(Math.max(0, index - 80), index + skill.length + 80) : lower;
+    if (/\b(preferred|nice to have|bonus|desirable|plus)\b/.test(windowText)) {
+      preferred.add(skill);
+    } else if (/\b(required|requirements|must|need|essential|qualifications|experience with)\b/.test(windowText)) {
+      required.add(skill);
+    }
+  }
+
+  if (required.size === 0) {
+    Array.from(jobSkills)
+      .sort((a, b) => {
+        const aIndex = lower.indexOf(a);
+        const bIndex = lower.indexOf(b);
+        return (aIndex === -1 ? Number.MAX_SAFE_INTEGER : aIndex) - (bIndex === -1 ? Number.MAX_SAFE_INTEGER : bIndex);
+      })
+      .slice(0, 8)
+      .forEach(skill => required.add(skill));
+  }
+
+  return {
+    required: Array.from(required).slice(0, 8),
+    preferred: Array.from(preferred).filter(skill => !required.has(skill)).slice(0, 8),
+  };
+}
+
+function buildResumeQualityChecks(resumeText: string, repeatedPhrasesCount: number): ResumeQualityCheck[] {
+  const lower = resumeText.toLowerCase();
+  const bullets = resumeText.split(/\n+/).filter(line => /^\s*[-*•]/.test(line));
+  const hasMetrics = /(\d+%|\$\d+|\b\d+x\b|\b\d+\+?\s*(users|customers|clients|projects|people|hours|days|weeks|months|years|reports|dashboards|teams)\b)/i.test(resumeText);
+  const actionVerbMatches = resumeText.match(/\b(led|built|created|improved|delivered|launched|managed|designed|reduced|increased|automated|analyzed|implemented|owned)\b/gi) || [];
+  const hasSkillsSection = /\b(skills|technical skills|tools|technologies)\b/.test(lower);
+  const longBullets = bullets.filter(line => line.split(/\s+/).length > 32);
+
+  return [
+    {
+      id: 'metrics',
+      label: 'Metrics and outcomes',
+      status: hasMetrics ? 'pass' : 'warning',
+      detail: hasMetrics ? 'Your resume includes measurable outcomes.' : 'Few measurable outcomes were detected.',
+      action: hasMetrics ? 'Keep the strongest metrics close to relevant keywords.' : 'Add truthful numbers, scale, time saved, revenue, quality, or volume where possible.',
+    },
+    {
+      id: 'action-verbs',
+      label: 'Action verb strength',
+      status: actionVerbMatches.length >= 4 ? 'pass' : 'warning',
+      detail: `${actionVerbMatches.length} strong action verb${actionVerbMatches.length === 1 ? '' : 's'} detected.`,
+      action: 'Start bullets with specific verbs like led, built, improved, delivered, automated, or analyzed.',
+    },
+    {
+      id: 'repetition',
+      label: 'Repeated phrasing',
+      status: repeatedPhrasesCount <= 2 ? 'pass' : 'warning',
+      detail: repeatedPhrasesCount <= 2 ? 'No major repetition pattern detected.' : `${repeatedPhrasesCount} repeated phrase patterns detected.`,
+      action: 'Vary repeated wording and replace generic phrases with specific contributions.',
+    },
+    {
+      id: 'sections',
+      label: 'Skills visibility',
+      status: hasSkillsSection ? 'pass' : 'info',
+      detail: hasSkillsSection ? 'A skills/tools section is visible.' : 'No clear skills/tools section was detected.',
+      action: 'Add a compact skills section if it fits your resume format.',
+    },
+    {
+      id: 'bullet-length',
+      label: 'Bullet readability',
+      status: longBullets.length === 0 ? 'pass' : 'warning',
+      detail: longBullets.length === 0 ? 'Resume bullets look reasonably concise.' : `${longBullets.length} bullet${longBullets.length === 1 ? '' : 's'} may be too long.`,
+      action: 'Keep bullets focused on action, context, and result.',
+    },
+  ];
+}
+
+function calculateRoleFocusScore(roleMode: RoleMode, resumeSkills: Set<string>, jobSkills: Set<string>): number {
+  const profile = ROLE_PROFILES[roleMode];
+  const jobFocusSkills = profile.focusSkills.filter(skill => jobSkills.has(skill));
+  const focusSet = jobFocusSkills.length > 0 ? jobFocusSkills : profile.focusSkills;
+  if (focusSet.length === 0) return 0;
+  const matched = focusSet.filter(skill => resumeSkills.has(skill)).length;
+  return (matched / focusSet.length) * 100;
+}
+
+export function analyzeMatch(resumeText: string, jobPostText: string, roleMode: RoleMode = 'general'): ScoringResult {
   const skillLookup = buildSkillLookup();
+  const profile = ROLE_PROFILES[roleMode] || ROLE_PROFILES.general;
   
   // Extract skills from both texts
-  const resumeSkills = extractSkillsFromText(resumeText, skillLookup);
-  const jobSkills = extractSkillsFromText(jobPostText, skillLookup);
+  const resumeSkills = extractSkillsFromText(resumeText);
+  const jobSkills = extractSkillsFromText(jobPostText);
   
   // Find matched and missing skills
   const matchedSkills: Array<{ skill: string; category: string }> = [];
@@ -142,7 +332,7 @@ export function analyzeMatch(resumeText: string, jobPostText: string): ScoringRe
   
   const allSkillsData = new Map<string, { category: string }>();
   for (const skill of resumeSkills) {
-    allSkillsData.set(skill, { category: 'unknown' });
+    allSkillsData.set(skill, { category: skillLookup.get(skill)?.category || 'unknown' });
   }
   
   // Get skill categories
@@ -208,6 +398,15 @@ export function analyzeMatch(resumeText: string, jobPostText: string): ScoringRe
     }))
     .sort((a, b) => b.importance - a.importance);
   
+  const missingKeywords = Array.from(allJobKeywords.entries())
+    .filter(([keyword]) => !matched.has(keyword) && !semanticMatches.has(keyword))
+    .map(([keyword, count]) => ({
+      keyword,
+      count,
+      importance: jobImportance.get(keyword) || 0,
+    }))
+    .sort((a, b) => b.importance - a.importance || b.count - a.count);
+
   const allKeywords = Array.from(allJobKeywords.entries())
     .map(([keyword, count]) => ({ keyword, count }))
     .sort((a, b) => b.count - a.count);
@@ -237,7 +436,7 @@ export function analyzeMatch(resumeText: string, jobPostText: string): ScoringRe
   
   // Repeated job term score - reward covering terms that appear multiple times in job post
   const importantTerms = Array.from(allJobKeywords.entries())
-    .filter(([_, count]) => count >= 2)
+    .filter(([, count]) => count >= 2)
     .map(([keyword]) => keyword);
   
   let coveredImportantTerms = 0;
@@ -264,14 +463,18 @@ export function analyzeMatch(resumeText: string, jobPostText: string): ScoringRe
     repetitionPenalty = 5;
   }
   
+  const roleFocusScore = roleMode === 'general'
+    ? 0
+    : calculateRoleFocusScore(roleMode, resumeSkills, jobSkills);
+
   // Calculate final score with improved weights
-  // Document importance weighted keyword score is more important now
   const semanticBonus = Math.min(semanticMatches.size * 0.5, 10); // Scale bonus with coverage, max 10 points
   let matchScore = 
-    keywordScore * 0.35 +
-    skillScore * 0.30 + // Slightly reduced skill weight
-    phraseScore * 0.15 +
-    repeatedJobTermScore * 0.10 +
+    keywordScore * profile.weights.keyword +
+    skillScore * profile.weights.skill +
+    phraseScore * profile.weights.phrase +
+    repeatedJobTermScore * profile.weights.repeated +
+    roleFocusScore * profile.weights.role +
     semanticBonus - // Scaled bonus for semantic matches
     repetitionPenalty;
   
@@ -299,7 +502,52 @@ export function analyzeMatch(resumeText: string, jobPostText: string): ScoringRe
     : 0;
   
   // Generate suggested bullets based on matched skills and missing skills
-  const suggestedBullets = generateSuggestedBullets(matchedSkills, missingSkills);
+  const suggestedBullets = generateSuggestedBullets(matchedSkills, missingSkills, jobPostText);
+  const scoreBreakdown: ScoreBreakdownItem[] = [
+    {
+      label: 'Keywords',
+      score: Math.round(keywordScore),
+      weight: Math.round(profile.weights.keyword * 100),
+      detail: 'Coverage of important job-post terms in your resume.',
+    },
+    {
+      label: 'Skills',
+      score: Math.round(skillScore),
+      weight: Math.round(profile.weights.skill * 100),
+      detail: 'Detected skill overlap between the resume and job post.',
+    },
+    {
+      label: 'Phrase alignment',
+      score: Math.round(phraseScore),
+      weight: Math.round(profile.weights.phrase * 100),
+      detail: 'Shared two- and three-word phrases that signal role alignment.',
+    },
+    {
+      label: 'Repeated job terms',
+      score: Math.round(repeatedJobTermScore),
+      weight: Math.round(profile.weights.repeated * 100),
+      detail: 'Coverage of terms the job post repeats multiple times.',
+    },
+  ];
+
+  if (roleMode !== 'general') {
+    scoreBreakdown.push({
+      label: `${profile.label} Role focus`,
+      score: Math.round(roleFocusScore),
+      weight: Math.round(profile.weights.role * 100),
+      detail: `Extra weighting for ${profile.label.toLowerCase()} skills and responsibilities.`,
+    });
+  }
+
+  const requiredPreferredSkills = extractRequiredPreferredSkills(jobPostText, jobSkills);
+  const jobInsights: JobInsights = {
+    seniority: detectSeniority(jobPostText),
+    roleTitle: inferRoleTitle(jobPostText),
+    requiredSkills: requiredPreferredSkills.required,
+    preferredSkills: requiredPreferredSkills.preferred,
+    responsibilities: extractResponsibilities(jobPostText),
+    topTerms: allKeywords.slice(0, 10).map(item => item.keyword),
+  };
   
   return {
     matchScore: Math.round(matchScore),
@@ -307,12 +555,18 @@ export function analyzeMatch(resumeText: string, jobPostText: string): ScoringRe
     skillScore: Math.round(skillScore),
     phraseScore: Math.round(phraseScore),
     repeatedJobTermScore: Math.round(repeatedJobTermScore),
+    roleFocusScore: Math.round(roleFocusScore),
+    roleMode,
     repetitionPenalty,
     matchedKeywords: matchedKeywords.slice(0, 20),
+    missingKeywords: missingKeywords.slice(0, 20),
     missingSkills,
     matchedSkills,
     repeatedPhrases,
     suggestedBullets,
+    scoreBreakdown,
+    resumeQualityChecks: buildResumeQualityChecks(resumeText, repeatedPhrasesData.length),
+    jobInsights,
     tfidfAnalysis: {
       resumeImportantTerms,
       jobPostImportantTerms: jobImportantTerms,
@@ -324,7 +578,8 @@ export function analyzeMatch(resumeText: string, jobPostText: string): ScoringRe
 // Generate suggested resume bullets
 function generateSuggestedBullets(
   matchedSkills: Array<{ skill: string; category: string }>,
-  missingSkills: Array<{ skill: string; category: string }>
+  missingSkills: Array<{ skill: string; category: string }>,
+  jobPostText: string
 ): string[] {
   const bullets: string[] = [];
   
@@ -333,11 +588,11 @@ function generateSuggestedBullets(
     const topMatched = matchedSkills.slice(0, 3);
     for (const skill of topMatched) {
       if (skill.category === 'technical') {
-        bullets.push(`Built and maintained ${skill.skill} solutions to support team objectives and deliver measurable results.`);
+        bullets.push(`If accurate, add a bullet showing how you used ${skill.skill} to deliver a measurable result.`);
       } else if (skill.category === 'business') {
-        bullets.push(`Applied ${skill.skill} to drive data-informed decisions and improve team performance.`);
+        bullets.push(`If accurate, describe how your ${skill.skill} work improved a process, decision, or outcome.`);
       } else if (skill.category === 'soft') {
-        bullets.push(`Demonstrated strong ${skill.skill} in cross-functional team environments to achieve project goals.`);
+        bullets.push(`If accurate, add a concise example of ${skill.skill} with the people involved and result achieved.`);
       }
     }
   }
@@ -347,19 +602,24 @@ function generateSuggestedBullets(
     const topMissing = missingSkills.slice(0, 3);
     for (const skill of topMissing) {
       if (skill.category === 'technical') {
-        bullets.push(`Utilized ${skill.skill} to analyze complex data and generate actionable insights for stakeholders.`);
+        bullets.push(`If accurate, add ${skill.skill} with a real project, tool, scale, or outcome so the keyword is supported.`);
       } else if (skill.category === 'business') {
-        bullets.push(`Applied ${skill.skill} methodologies to streamline processes and reduce inefficiencies.`);
+        bullets.push(`If accurate, include a ${skill.skill} example that mirrors the job post and includes a result.`);
       }
     }
+  }
+
+  const responsibilities = extractResponsibilities(jobPostText);
+  for (const responsibility of responsibilities.slice(0, 2)) {
+    bullets.push(`If accurate, mirror this responsibility with your own evidence: ${responsibility}`);
   }
   
   // Add generic strong bullets if we don't have enough
   if (bullets.length < 3) {
     bullets.push(
-      'Analyzed user feedback and market research to identify opportunities for product improvements.',
-      'Collaborated with cross-functional teams to deliver projects on time and within scope.',
-      'Led initiative to implement new tools and processes that increased team productivity by measurable metrics.'
+      'If accurate, add a metric that shows scale, speed, quality, revenue, savings, or customer impact.',
+      'If accurate, rewrite one bullet to show action, tool, context, and measurable result.',
+      'If accurate, include a project example that directly maps to one of the role responsibilities.'
     );
   }
   

@@ -78,6 +78,12 @@ export const SKILLS: Skill[] = [
   { name: 'etl', variations: ['extract transform load', 'data pipeline'], category: 'business' },
   { name: 'requirements gathering', variations: ['requirements analysis', 'business requirements'], category: 'business' },
   { name: 'strategy', variations: ['strategic planning', 'strategic thinking'], category: 'business' },
+  { name: 'compliance', variations: ['regulatory compliance', 'risk compliance', 'controls'], category: 'business' },
+  { name: 'risk management', variations: ['risk assessment', 'risk controls', 'risk analysis'], category: 'business' },
+  { name: 'financial analysis', variations: ['finance analysis', 'financial modelling', 'financial modeling'], category: 'business' },
+  { name: 'campaign management', variations: ['marketing campaigns', 'campaign planning'], category: 'business' },
+  { name: 'seo', variations: ['search engine optimization', 'organic search'], category: 'business' },
+  { name: 'crm', variations: ['customer relationship management', 'salesforce', 'hubspot'], category: 'business' },
   { name: 'leadership', variations: ['team leadership', 'leading teams'], category: 'business' },
   { name: 'communication', variations: ['written communication', 'verbal communication', 'presentations'], category: 'soft' },
   { name: 'collaboration', variations: ['team collaboration', 'cross-functional collaboration'], category: 'soft' },
@@ -122,8 +128,20 @@ export function buildSkillLookup(): Map<string, Skill> {
   return lookup;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function containsSkillTerm(text: string, term: string): boolean {
+  const escaped = escapeRegExp(term.toLowerCase());
+  const pattern = /^[a-z0-9+#./-]+$/.test(term)
+    ? new RegExp(`(^|[^a-z0-9+#./-])${escaped}([^a-z0-9+#./-]|$)`, 'i')
+    : new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, 'i');
+  return pattern.test(text);
+}
+
 // Extract skills from text
-export function extractSkillsFromText(text: string, skillLookup: Map<string, Skill>): Set<string> {
+export function extractSkillsFromText(text: string): Set<string> {
   const foundSkills = new Set<string>();
   const normalizedText = text.toLowerCase();
   
@@ -131,11 +149,11 @@ export function extractSkillsFromText(text: string, skillLookup: Map<string, Ski
   const sortedSkills = [...SKILLS].sort((a, b) => b.name.length - a.name.length);
   
   for (const skill of sortedSkills) {
-    if (normalizedText.includes(skill.name)) {
+    if (containsSkillTerm(normalizedText, skill.name)) {
       foundSkills.add(skill.name);
     } else {
       for (const variant of skill.variations) {
-        if (normalizedText.includes(variant)) {
+        if (containsSkillTerm(normalizedText, variant)) {
           foundSkills.add(skill.name);
           break;
         }

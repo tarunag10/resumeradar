@@ -1,4 +1,4 @@
-import { analyzeMatch, getMatchInfo, ScoringResult } from '../scoring';
+import { analyzeMatch, getMatchInfo } from '../scoring';
 
 describe('scoring', () => {
   describe('analyzeMatch', () => {
@@ -130,6 +130,43 @@ describe('scoring', () => {
       expect(result.tfidfAnalysis).toHaveProperty('jobPostImportantTerms');
       expect(result.tfidfAnalysis).toHaveProperty('coverageRatio');
       expect(typeof result.tfidfAnalysis.coverageRatio).toBe('number');
+    });
+
+    it('should include actionable score breakdown, missing keywords, quality checks, and job insights', () => {
+      const resume = 'Senior analyst with Python SQL dashboards. Responsible for reporting.';
+      const jobPost = `
+        Senior Data Analyst
+        Requirements: Python, SQL, AWS, dashboarding.
+        Preferred: stakeholder management.
+        Responsibilities include build dashboards and analyze customer trends.
+      `;
+
+      const result = analyzeMatch(resume, jobPost);
+
+      expect(result.scoreBreakdown.length).toBeGreaterThan(0);
+      expect(result.missingKeywords.some(item => item.keyword === 'aws')).toBe(true);
+      expect(result.resumeQualityChecks.some(check => check.id === 'metrics')).toBe(true);
+      expect(result.jobInsights.seniority).toBe('Senior');
+      expect(result.jobInsights.requiredSkills).toContain('python');
+    });
+
+    it('should tune analysis for a role mode', () => {
+      const resume = 'Product manager who led roadmap prioritization, user research, experimentation, and stakeholder alignment.';
+      const jobPost = 'Product Manager role requiring roadmap, prioritization, user research, experimentation, analytics, and product strategy.';
+
+      const result = analyzeMatch(resume, jobPost, 'product');
+
+      expect(result.roleMode).toBe('product');
+      expect(result.scoreBreakdown.some(item => item.label.includes('Role'))).toBe(true);
+      expect(result.jobInsights.requiredSkills).toContain('roadmap');
+    });
+
+    it('should suggest truthful prompts instead of claiming missing skills', () => {
+      const resume = 'Analyst with SQL reporting and dashboards.';
+      const jobPost = 'Need SQL, Python, AWS, and dashboarding experience.';
+      const result = analyzeMatch(resume, jobPost);
+
+      expect(result.suggestedBullets.some(bullet => bullet.toLowerCase().startsWith('if accurate'))).toBe(true);
     });
 
     it('should include importance score in matchedKeywords', () => {
