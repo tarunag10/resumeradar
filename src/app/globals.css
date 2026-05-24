@@ -115,6 +115,21 @@ button, a, input, textarea, .card-bezel, .btn-press {
   box-shadow: var(--shadow-soft);
 }
 
+.graphic-crop {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.graphic-crop__image {
+  inset: 0 auto auto 0 !important;
+  height: 200% !important;
+  max-width: none !important;
+  object-fit: fill;
+  transform-origin: top left;
+  width: 200% !important;
+}
+
 /* Motion utilities */
 .animate-fade-up {
   animation: fadeUp 0.8s cubic-bezier(0.32, 0.72, 0, 1) forwards;

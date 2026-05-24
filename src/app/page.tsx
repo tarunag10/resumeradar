@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { useState, useEffect, useCallback } from 'react';
 import { TextInput } from '@/components/TextInput';
 import { PrivacyBadge } from '@/components/PrivacyBadge';
@@ -26,6 +27,38 @@ import { loadSampleData } from '@/lib/sampleData';
 import { clearMatchHistory, saveMatchToHistory } from '@/lib/matchHistory';
 
 const MIN_TEXT_LENGTH = 100;
+const graphicTransforms = {
+  logo: 'translate(0, 0)',
+  compare: 'translate(-50%, 0)',
+  privacy: 'translate(0, -50%)',
+  empty: 'translate(-50%, -50%)',
+} as const;
+
+function GraphicCrop({
+  variant,
+  alt,
+  className = '',
+  priority = false,
+}: {
+  variant: keyof typeof graphicTransforms;
+  alt: string;
+  className?: string;
+  priority?: boolean;
+}) {
+  return (
+    <div className={`graphic-crop ${className}`}>
+      <Image
+        src='/assets/resumeradar-graphics.png'
+        alt={alt}
+        fill
+        sizes='(max-width: 768px) 90vw, 520px'
+        priority={priority}
+        className='graphic-crop__image'
+        style={{ transform: graphicTransforms[variant] }}
+      />
+    </div>
+  );
+}
 
 function ReadinessItem({
   label,
@@ -193,11 +226,7 @@ export default function Home() {
       <header className='sticky top-0 z-50 border-b border-[var(--border)] bg-[var(--background)]/85 px-4 py-3 backdrop-blur-xl'>
         <nav className='mx-auto flex max-w-6xl items-center justify-between gap-4'>
           <div className='flex items-center gap-3'>
-            <div className='flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--foreground)] text-[var(--background)]'>
-              <svg className='h-5 w-5' fill='none' stroke='currentColor' viewBox='0 0 24 24' aria-hidden='true'>
-                <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={1.7} d='M9 12h6m-6 4h4m4 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.5L19 9.5V19a2 2 0 01-2 2z' />
-              </svg>
-            </div>
+            <GraphicCrop variant='logo' alt='ResumeRadar logo' className='h-10 w-10 rounded-xl bg-white shadow-sm ring-1 ring-[var(--border)]' priority />
             <div>
               <p className='text-sm font-semibold leading-none text-[var(--foreground)]'>ResumeRadar</p>
               <p className='mt-1 hidden text-xs text-[var(--muted)] sm:block'>Private role matching</p>
@@ -229,7 +258,7 @@ export default function Home() {
       <main className='flex-1'>
         <section id='matcher' className='px-4 pb-10 pt-8 md:pb-16 md:pt-12'>
           <div className='mx-auto max-w-6xl'>
-            <div className='mb-6 grid gap-5 lg:grid-cols-[1fr_360px] lg:items-end'>
+            <div className='mb-6 grid gap-6 lg:grid-cols-[1fr_400px] lg:items-end'>
               <div>
                 <h1 className='max-w-3xl text-3xl font-bold tracking-tight text-[var(--foreground)] md:text-5xl'>
                   Match your resume to the role before you apply.
@@ -239,10 +268,13 @@ export default function Home() {
                 </p>
               </div>
 
-              <div className='grid grid-cols-3 gap-2 lg:grid-cols-1'>
-                <TrustMetric value='0' label='data uploaded' />
-                <TrustMetric value='100%' label='browser processing' />
-                <TrustMetric value='44' label='checks covered' />
+              <div className='overflow-hidden rounded-2xl border border-[var(--border)] bg-white shadow-[var(--shadow-soft)] dark:bg-[var(--surface-strong)]'>
+                <GraphicCrop variant='compare' alt='Resume and job post compared by a radar scan' className='aspect-[16/10]' priority />
+                <div className='grid grid-cols-3 gap-2 border-t border-[var(--border)] bg-[var(--surface)] p-2'>
+                  <TrustMetric value='0' label='data uploaded' />
+                  <TrustMetric value='100%' label='browser processing' />
+                  <TrustMetric value='44' label='checks covered' />
+                </div>
               </div>
             </div>
 
@@ -373,20 +405,14 @@ export default function Home() {
         ) : (
           <section id='results' className='px-4 pb-12' aria-live='polite'>
             <div className='mx-auto max-w-6xl rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface)]/65 p-6'>
-              <div className='grid gap-4 md:grid-cols-[1fr_1.2fr] md:items-center'>
+              <div className='grid gap-5 md:grid-cols-[0.9fr_1.1fr] md:items-center'>
                 <div>
                   <p className='text-xs font-semibold uppercase tracking-[0.18em] text-blue-600 dark:text-blue-300'>Preview</p>
                   <h2 className='mt-2 text-2xl font-semibold tracking-tight text-[var(--foreground)]'>Your analysis will appear here.</h2>
                   <p className='mt-2 text-sm text-[var(--muted)]'>Run a match to see score, matched keywords, missing skills, repeated phrases, and suggested bullets.</p>
                 </div>
-                <div className='grid gap-3 sm:grid-cols-3'>
-                  {['Score', 'Keywords', 'Bullet ideas'].map((item) => (
-                    <div key={item} className='rounded-xl border border-[var(--border)] bg-[var(--background)] p-4'>
-                      <div className='h-2 w-16 rounded-full bg-slate-200 dark:bg-slate-800' />
-                      <p className='mt-8 text-sm font-medium text-[var(--foreground)]'>{item}</p>
-                      <p className='mt-1 text-xs text-[var(--muted)]'>Ready after analysis</p>
-                    </div>
-                  ))}
+                <div className='overflow-hidden rounded-2xl border border-[var(--border)] bg-white dark:bg-[var(--surface-strong)]'>
+                  <GraphicCrop variant='empty' alt='Document search illustration for empty match results' className='aspect-[16/8]' />
                 </div>
               </div>
             </div>
@@ -394,10 +420,13 @@ export default function Home() {
         )}
 
         <section id='privacy' className='px-4 py-16 md:py-20'>
-          <div className='mx-auto grid max-w-6xl gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-start'>
+          <div className='mx-auto grid max-w-6xl gap-8 lg:grid-cols-[0.85fr_1.15fr] lg:items-start'>
             <div>
               <p className='text-xs font-semibold uppercase tracking-[0.18em] text-emerald-600 dark:text-emerald-300'>Private by design</p>
               <h2 className='mt-3 text-3xl font-bold tracking-tight text-[var(--foreground)]'>Your resume stays in your browser.</h2>
+              <div className='mt-6 overflow-hidden rounded-2xl border border-[var(--border)] bg-white shadow-[var(--shadow-soft)] dark:bg-[var(--surface-strong)]'>
+                <GraphicCrop variant='privacy' alt='Privacy shield protecting local resume documents' className='aspect-[16/9]' />
+              </div>
             </div>
             <div className='grid gap-3 md:grid-cols-3'>
               {[
