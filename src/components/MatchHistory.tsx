@@ -54,14 +54,15 @@ export function MatchHistory({ onSelectEntry, refreshSignal = 0 }: MatchHistoryP
       <button
         type='button'
         onClick={() => setIsOpen(!isOpen)}
-        className='flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 border border-gray-300 dark:border-gray-600 rounded-lg hover:border-indigo-400 dark:hover:border-indigo-500 transition-colors'
+        className='flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 border border-gray-300 dark:border-gray-600 rounded-lg hover:border-indigo-400 dark:hover:border-indigo-500 transition-colors whitespace-nowrap'
         aria-expanded={isOpen}
         aria-haspopup='true'
       >
         <svg className='w-4 h-4' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
           <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' />
         </svg>
-        History ({history.length})
+        <span className='hidden sm:inline'>History ({history.length})</span>
+        <span className='sm:hidden'>{history.length}</span>
       </button>
 
       {isOpen && (

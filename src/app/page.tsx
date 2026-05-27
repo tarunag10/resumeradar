@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Image from 'next/image';
 import { TextInput } from '@/components/TextInput';
 import { PrivacyBadge } from '@/components/PrivacyBadge';
 import { ResultsDashboard } from '@/components/ResultsDashboard';
@@ -209,10 +210,15 @@ export default function Home() {
           <div className='card-bezel'>
             <div className='card-bezel-inner px-5 py-3 flex items-center justify-between'>
               <div className='flex items-center gap-3'>
-                <div className='w-9 h-9 bg-[var(--foreground)] rounded-xl flex items-center justify-center'>
-                  <svg className='w-5 h-5 text-[var(--background)]' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-                    <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={1.5} d='M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' />
-                  </svg>
+                <div className='w-9 h-9 rounded-xl flex items-center justify-center overflow-hidden bg-white border border-[var(--border)] shadow-sm'>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src='/assets/resumeradar-logo.png'
+                    alt=''
+                    width={30}
+                    height={30}
+                    className='w-7 h-7 object-contain'
+                  />
                 </div>
                 <span className='font-display font-semibold text-[var(--foreground)] tracking-tight'>ResumeRadar</span>
               </div>
@@ -230,7 +236,7 @@ export default function Home() {
                 <button
                   type='button'
                   onClick={handleClearAll}
-                  className='text-xs text-[var(--muted)] hover:text-red-500 transition-colors px-3 py-1.5 rounded-lg hover:bg-[var(--border)]'
+                  className='hidden sm:inline-flex text-xs text-[var(--muted)] hover:text-red-500 transition-colors px-3 py-1.5 rounded-lg hover:bg-[var(--border)]'
                   aria-label='Clear local data'
                 >
                   Clear data
@@ -243,11 +249,12 @@ export default function Home() {
 
       <main className='flex-1'>
         {/* Hero Section - Asymmetric layout */}
-        <section className='relative px-4 pt-16 pb-24 md:pt-24 md:pb-32'>
-          <div className='max-w-5xl mx-auto'>
-            <div className='grid lg:grid-cols-5 gap-12 items-center'>
+        <section className='relative px-4 pt-12 pb-20 md:pt-20 md:pb-28 overflow-hidden'>
+          <div className='absolute inset-x-0 top-0 h-[520px] pointer-events-none hero-atmosphere' />
+          <div className='max-w-6xl mx-auto relative'>
+            <div className='grid lg:grid-cols-12 gap-10 lg:gap-12 items-center'>
               {/* Left content - asymmetric */}
-              <div className='lg:col-span-3 space-y-8'>
+              <div className='lg:col-span-5 space-y-8'>
                 {/* Eyebrow */}
                 <div className='inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)]'>
                   <span className='w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse' />
@@ -281,24 +288,30 @@ export default function Home() {
                 </div>
               </div>
               
-              {/* Right side - decorative stats bento */}
-              <div className='lg:col-span-2 grid grid-cols-2 gap-3'>
-                <div className='card-bezel p-4 animate-fade-up' style={{ animationDelay: '100ms', animationFillMode: 'both' }}>
-                  <div className='card-bezel-inner p-4 text-center'>
-                    <p className='font-display text-3xl font-bold text-[var(--foreground)]'>0</p>
-                    <p className='text-xs text-[var(--muted)] mt-1'>Data uploaded</p>
+              {/* Right side - generated product visual */}
+              <div className='lg:col-span-7 animate-fade-up' style={{ animationDelay: '120ms', animationFillMode: 'both' }}>
+                <div className='hero-visual-shell'>
+                  <Image
+                    src='/assets/resumeradar-hero.png'
+                    alt='Abstract resume and job post panels being matched locally with radar scanning arcs'
+                    width={1568}
+                    height={1003}
+                    className='hero-visual-image'
+                    priority
+                  />
+                  <div className='hero-visual-fade' />
+                  <div className='hero-stat hero-stat-upload'>
+                    <span className='hero-stat-value'>0</span>
+                    <span className='hero-stat-label'>Data uploaded</span>
                   </div>
-                </div>
-                <div className='card-bezel p-4 animate-fade-up' style={{ animationDelay: '200ms', animationFillMode: 'both' }}>
-                  <div className='card-bezel-inner p-4 text-center'>
-                    <p className='font-display text-3xl font-bold text-[var(--foreground)]'>100%</p>
-                    <p className='text-xs text-[var(--muted)] mt-1'>Browser processing</p>
+                  <div className='hero-stat hero-stat-browser'>
+                    <span className='hero-stat-value'>100%</span>
+                    <span className='hero-stat-label'>Browser processing</span>
                   </div>
-                </div>
-                <div className='col-span-2 card-bezel p-4 animate-fade-up' style={{ animationDelay: '300ms', animationFillMode: 'both' }}>
-                  <div className='card-bezel-inner p-4 text-center'>
-                    <p className='font-display text-2xl font-bold text-[var(--foreground)]'>Instant Results</p>
-                    <p className='text-xs text-[var(--muted)] mt-1'>No waiting, no servers</p>
+                  <div className='hero-chip-row' aria-hidden='true'>
+                    <span>keyword overlap</span>
+                    <span>missing skills</span>
+                    <span>stronger bullets</span>
                   </div>
                 </div>
               </div>

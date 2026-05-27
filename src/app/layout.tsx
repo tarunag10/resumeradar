@@ -25,11 +25,20 @@ export const metadata: Metadata = {
     description: 'Compare your resume with any job post in seconds. Find missing skills, keyword overlap, repeated phrases, and better resume bullet ideas.',
     url: '/',
     type: 'website',
+    images: [
+      {
+        url: '/assets/resumeradar-hero.png',
+        width: 1568,
+        height: 1003,
+        alt: 'ResumeRadar private resume matching visual',
+      },
+    ],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Free Private Resume Matcher',
     description: 'Compare your resume with any job post in seconds. Find missing skills, keyword overlap, repeated phrases, and better resume bullet ideas.',
+    images: ['/assets/resumeradar-hero.png'],
   },
   robots: 'index, follow',
 };
