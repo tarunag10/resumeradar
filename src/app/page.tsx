@@ -627,6 +627,17 @@ export default function Home() {
           <p className='text-sm text-[var(--muted)] mb-2'>
             Built for private resume tailoring. Your text is processed locally and is not uploaded.
           </p>
+          <p className='text-xs text-[var(--muted)] mb-2'>
+            Built by <span className='font-medium text-[var(--foreground)]'>Code Counsel</span> - for more apps please visit{' '}
+            <a
+              href='https://code-counsel.vercel.app'
+              target='_blank'
+              rel='noreferrer'
+              className='font-medium text-[var(--foreground)] underline underline-offset-4 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors'
+            >
+              code-counsel.vercel.app
+            </a>
+          </p>
           <p className='text-xs text-[var(--muted)]'>
             &copy; {new Date().getFullYear()} ResumeRadar
           </p>
