@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Image from 'next/image';
 import { TextInput } from '@/components/TextInput';
 import { PrivacyBadge } from '@/components/PrivacyBadge';
@@ -25,15 +25,23 @@ import {
 } from '@/lib/localStorage';
 import { loadSampleData } from '@/lib/sampleData';
 import { clearMatchHistory, saveMatchToHistory } from '@/lib/matchHistory';
+import { parseStoredResult } from '@/lib/resultSchema';
 
-function hasCurrentResultShape(result: ScoringResult | null): result is ScoringResult {
-  return Boolean(
-    result &&
-    Array.isArray(result.scoreBreakdown) &&
-    Array.isArray(result.missingKeywords) &&
-    Array.isArray(result.resumeQualityChecks) &&
-    result.jobInsights
-  );
+// Analysis is synchronous on the main thread; a hard cap keeps a pasted document from
+// freezing the tab without telling the user why.
+const MAX_FIELD_LENGTH = 200_000;
+
+interface AnalyzedInputs {
+  resumeText: string;
+  jobPostText: string;
+  roleMode: RoleMode;
+}
+
+function scrollToResults() {
+  const target = document.getElementById('results');
+  if (!target) return;
+  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+  target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth' });
 }
 
 export default function Home() {
@@ -46,10 +54,12 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [storageAvailable, setStorageAvailable] = useState(false);
+  const [analyzedInputs, setAnalyzedInputs] = useState<AnalyzedInputs | null>(null);
+  const storageWarningShown = useRef(false);
   const { toasts, addToast, removeToast } = useToast();
 
   useEffect(() => {
-    setStorageAvailable(isStorageAvailable);
+    setStorageAvailable(isStorageAvailable());
     const savedResume = getResumeText();
     const savedJobPost = getJobPostText();
     const { result: savedResult, timestamp } = getLastResult();
@@ -57,9 +67,14 @@ export default function Home() {
     if (savedResume || savedJobPost) {
       setResumeText(savedResume);
       setJobPostText(savedJobPost);
-      if (hasCurrentResultShape(savedResult) && timestamp) {
-        setResult(savedResult);
-        setRoleMode(savedResult.roleMode || 'general');
+
+      const restoredResult = parseStoredResult(savedResult);
+
+      if (restoredResult && timestamp) {
+        const restoredRoleMode = restoredResult.roleMode || 'general';
+        setResult(restoredResult);
+        setRoleMode(restoredRoleMode);
+        setAnalyzedInputs({ resumeText: savedResume, jobPostText: savedJobPost, roleMode: restoredRoleMode });
         setShowRestoreNotice(true);
       }
     }
@@ -68,17 +83,25 @@ export default function Home() {
   // Autosave with debounce
   useEffect(() => {
     const timer = setTimeout(() => {
-      saveResumeText(resumeText);
+      const saved = saveResumeText(resumeText);
+      if (!saved && resumeText && storageAvailable && !storageWarningShown.current) {
+        storageWarningShown.current = true;
+        addToast('Local storage is full, so your text will not be kept after reload.', 'error');
+      }
     }, 500);
     return () => clearTimeout(timer);
-  }, [resumeText]);
+  }, [resumeText, storageAvailable, addToast]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      saveJobPostText(jobPostText);
+      const saved = saveJobPostText(jobPostText);
+      if (!saved && jobPostText && storageAvailable && !storageWarningShown.current) {
+        storageWarningShown.current = true;
+        addToast('Local storage is full, so your text will not be kept after reload.', 'error');
+      }
     }, 500);
     return () => clearTimeout(timer);
-  }, [jobPostText]);
+  }, [jobPostText, storageAvailable, addToast]);
 
   const handleResumeChange = useCallback((value: string) => {
     setResumeText(value);
@@ -105,6 +128,10 @@ export default function Home() {
   }, [addToast]);
 
   const handleAnalyze = useCallback(() => {
+    if (resumeText.length > MAX_FIELD_LENGTH || jobPostText.length > MAX_FIELD_LENGTH) {
+      setError(`Each field is limited to ${MAX_FIELD_LENGTH.toLocaleString()} characters. Trim the text and try again.`);
+      return;
+    }
     if (!resumeText.trim()) {
       setError('Paste more resume text for a useful comparison.');
       return;
@@ -130,14 +157,18 @@ export default function Home() {
 
     const analysisResult = analyzeMatch(resumeText, jobPostText, roleMode);
     setResult(analysisResult);
+    setAnalyzedInputs({ resumeText, jobPostText, roleMode });
+    setShowRestoreNotice(false);
     saveLastResult(analysisResult);
-    saveMatchToHistory(resumeText, jobPostText, analysisResult);
+
+    if (!saveMatchToHistory(resumeText, jobPostText, analysisResult) && storageAvailable) {
+      addToast('Analysis ran, but it could not be added to history (local storage is full).', 'error');
+    }
+
     setHistoryRefresh(value => value + 1);
 
-    setTimeout(() => {
-      document.getElementById('results')?.scrollIntoView({ behavior: 'smooth' });
-    }, 100);
-  }, [resumeText, jobPostText, roleMode]);
+    setTimeout(scrollToResults, 100);
+  }, [resumeText, jobPostText, roleMode, addToast, storageAvailable]);
 
   const handleLoadSample = useCallback(() => {
     const { resume, jobPost } = loadSampleData();
@@ -147,11 +178,14 @@ export default function Home() {
     setTimeout(() => {
       const analysisResult = analyzeMatch(resume, jobPost, roleMode);
       setResult(analysisResult);
+      setAnalyzedInputs({ resumeText: resume, jobPostText: jobPost, roleMode });
+      setShowRestoreNotice(false);
       saveResumeText(resume);
       saveJobPostText(jobPost);
       saveLastResult(analysisResult);
       saveMatchToHistory(resume, jobPost, analysisResult);
       setHistoryRefresh(value => value + 1);
+      scrollToResults();
     }, 100);
   }, [roleMode]);
 
@@ -161,28 +195,42 @@ export default function Home() {
     setResumeText('');
     setJobPostText('');
     setResult(null);
+    setAnalyzedInputs(null);
+    setShowRestoreNotice(false);
+    setHistoryRefresh(value => value + 1);
     setShowClearConfirm(true);
     setTimeout(() => setShowClearConfirm(false), 3000);
   }, []);
 
   const handleRestoreHistory = useCallback((entry: { resumeText: string; jobPostText: string; result: ScoringResult }) => {
-    if (!entry.resumeText || !entry.jobPostText || !hasCurrentResultShape(entry.result)) {
+    const restoredResult = parseStoredResult(entry.result);
+
+    if (!entry.resumeText || !entry.jobPostText || !restoredResult) {
       addToast('This older history item cannot be restored', 'error');
       return;
     }
 
     setResumeText(entry.resumeText);
     setJobPostText(entry.jobPostText);
-    setResult(entry.result);
-    setRoleMode(entry.result.roleMode || 'general');
+    setResult(restoredResult);
+    const restoredRoleMode = restoredResult.roleMode || 'general';
+    setRoleMode(restoredRoleMode);
+    setAnalyzedInputs({ resumeText: entry.resumeText, jobPostText: entry.jobPostText, roleMode: restoredRoleMode });
     saveResumeText(entry.resumeText);
     saveJobPostText(entry.jobPostText);
-    saveLastResult(entry.result);
+    saveLastResult(restoredResult);
     setShowRestoreNotice(true);
     addToast('History match restored', 'success');
   }, [addToast]);
 
   const canAnalyze = resumeText.length >= 100 && jobPostText.length >= 100;
+  const isStale = Boolean(
+    result &&
+    analyzedInputs &&
+    (resumeText !== analyzedInputs.resumeText ||
+      jobPostText !== analyzedInputs.jobPostText ||
+      roleMode !== analyzedInputs.roleMode)
+  );
 
   // Keyboard shortcut (Cmd/Ctrl + Enter to analyze)
   useEffect(() => {
@@ -327,6 +375,16 @@ export default function Home() {
                 <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={1.5} d='M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' />
               </svg>
               <span className='text-sm text-amber-800 dark:text-amber-200'>Last comparison restored from this browser</span>
+              <button
+                type='button'
+                onClick={() => setShowRestoreNotice(false)}
+                className='ml-auto p-1 rounded-md text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors'
+                aria-label='Dismiss restore notice'
+              >
+                <svg className='w-4 h-4' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
+                  <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={1.5} d='M6 18L18 6M6 6l12 12' />
+                </svg>
+              </button>
             </div>
           </div>
         )}
@@ -440,7 +498,7 @@ export default function Home() {
               </button>
               {canAnalyze && (
                 <span className='text-xs text-[var(--muted)]'>
-                  or press <kbd className='font-mono px-1.5 py-0.5 rounded border border-[var(--border)] bg-[var(--surface)]'>⌘</kbd> + <kbd className='font-mono px-1.5 py-0.5 rounded border border-[var(--border)] bg-[var(--surface)]'>Enter</kbd>
+                  or press <kbd className='font-mono px-1.5 py-0.5 rounded border border-[var(--border)] bg-[var(--surface)]'>Ctrl/⌘</kbd> + <kbd className='font-mono px-1.5 py-0.5 rounded border border-[var(--border)] bg-[var(--surface)]'>Enter</kbd>
                 </span>
               )}
             </div>
@@ -465,6 +523,24 @@ export default function Home() {
                 </h2>
                 <p className='text-[var(--muted)] mt-2'>Based on your resume and job post comparison</p>
               </div>
+              {isStale && (
+                <div
+                  className='mb-6 flex flex-col gap-3 rounded-xl border border-amber-200 dark:border-amber-800/50 bg-amber-50/50 dark:bg-amber-900/20 px-4 py-3 sm:flex-row sm:items-center'
+                  role='status'
+                >
+                  <span className='text-sm text-amber-800 dark:text-amber-200'>
+                    Your inputs changed since this analysis, so the score below is out of date.
+                  </span>
+                  <button
+                    type='button'
+                    onClick={handleAnalyze}
+                    disabled={!canAnalyze}
+                    className='btn-press sm:ml-auto shrink-0 rounded-lg bg-[var(--foreground)] px-3 py-1.5 text-xs font-medium text-[var(--background)] disabled:opacity-50'
+                  >
+                    Re-analyze
+                  </button>
+                </div>
+              )}
               <ResultsDashboard result={result} />
             </div>
           </section>

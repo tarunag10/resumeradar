@@ -61,7 +61,8 @@ export function tokenize(text: string): string[] {
   return text
     .toLowerCase()
     .replace(/[^a-z0-9']/g, ' ')
-    .split(/\b/)
+    .split(/\s+/)
+    .map(word => word.replace(/^'+|'+$/g, ''))
     .filter(word => word.length > 1 && !isStopWord(word));
 }
 
@@ -124,8 +125,24 @@ export function findRepeatedPhrases(text: string): Array<{ phrase: string; count
     }
   });
   
-  // Sort by count descending
-  return repeated.sort((a, b) => b.count - a.count);
+  // Overlapping 2-, 3- and 4-word windows describe the same repetition, so keep the
+  // longest form of each repeated sentence fragment instead of reporting every window.
+  const sorted = repeated.sort((a, b) => {
+    if (b.count !== a.count) return b.count - a.count;
+    return b.phrase.split(' ').length - a.phrase.split(' ').length;
+  });
+
+  const deduped: Array<{ phrase: string; count: number }> = [];
+  for (const candidate of sorted) {
+    const coveredByLongerPhrase = deduped.some(
+      kept => kept.count >= candidate.count && kept.phrase.includes(candidate.phrase)
+    );
+    if (!coveredByLongerPhrase) {
+      deduped.push(candidate);
+    }
+  }
+
+  return deduped;
 }
 
 // Extract keywords from text (excluding stop words)

@@ -1,4 +1,4 @@
-import { analyzeMatch, getMatchInfo } from '../scoring';
+import { RoleMode, analyzeMatch, getMatchInfo, getRoleWeightTotal } from '../scoring';
 
 describe('scoring', () => {
   describe('analyzeMatch', () => {
@@ -230,6 +230,90 @@ describe('scoring', () => {
       expect(getMatchInfo(65).label).toBe('Strong match');
       expect(getMatchInfo(39).label).not.toBe('Moderate match');
       expect(getMatchInfo(40).label).toBe('Moderate match');
+    });
+  });
+
+  describe('score scale', () => {
+    const resume = `
+      Data Analyst with Python, SQL, Tableau and dashboarding experience.
+      Built dashboards, analyzed product metrics and presented findings to stakeholders.
+      Managed a project team and improved reporting quality by 20%.
+    `;
+    const jobPost = `
+      Senior Data Analyst
+      Requirements: Python, SQL, AWS, Tableau, dashboarding, stakeholder management.
+      Preferred: machine learning.
+      Responsibilities: build dashboards, analyze product metrics, present findings.
+    `;
+
+    it('keeps every role profile on one 0-100 scale', () => {
+      const modes: RoleMode[] = ['general', 'software', 'data', 'product', 'marketing', 'legal', 'finance'];
+
+      modes.forEach(mode => {
+        expect(getRoleWeightTotal(mode)).toBeCloseTo(1, 6);
+      });
+    });
+
+    it('reports breakdown weights that add up to 100', () => {
+      const result = analyzeMatch(resume, jobPost, 'data');
+      const total = result.scoreBreakdown.reduce((sum, item) => sum + item.weight, 0);
+
+      expect(total).toBe(100);
+    });
+
+    it('does not award points when there is nothing to compare', () => {
+      const result = analyzeMatch(resume, '');
+
+      expect(result.matchScore).toBe(0);
+    });
+
+    it('says which signals were left out of the score', () => {
+      const result = analyzeMatch(resume, 'Python SQL Tableau dashboarding stakeholder management');
+
+      expect(result.scoreNotes.join(' ')).toContain('repeated-terms signal');
+    });
+
+    it('keeps the displayed contributions consistent with the final score', () => {
+      const result = analyzeMatch(resume, jobPost, 'data');
+      const contributions = result.scoreBreakdown.reduce((sum, item) => sum + (item.contribution ?? 0), 0);
+
+      expect(Math.abs(contributions - result.repetitionPenalty - result.matchScore)).toBeLessThanOrEqual(1);
+    });
+  });
+
+  describe('related-term matching', () => {
+    it('rewards a job term matched through related wording', () => {
+      const result = analyzeMatch(
+        'Led a team of engineers and owned delivery',
+        'Leading engineers and delivery ownership'
+      );
+
+      expect(result.semanticMatches).toContain('leading');
+    });
+
+    it('does not double count exact matches as related matches', () => {
+      const result = analyzeMatch('Python SQL dashboards', 'Python SQL dashboards');
+
+      expect(result.semanticMatches).toEqual([]);
+    });
+  });
+
+  describe('required and preferred skills', () => {
+    it('uses section headings instead of the first mention', () => {
+      const jobPost = `
+        Requirements:
+        - Python and SQL
+        Preferred:
+        - Kubernetes
+        Responsibilities:
+        - Build dashboards
+      `;
+
+      const result = analyzeMatch('Python SQL dashboards', jobPost);
+
+      expect(result.jobInsights.requiredSkills).toContain('python');
+      expect(result.jobInsights.preferredSkills).toContain('kubernetes');
+      expect(result.jobInsights.requiredSkills).not.toContain('kubernetes');
     });
   });
 });

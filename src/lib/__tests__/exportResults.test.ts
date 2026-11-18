@@ -33,6 +33,8 @@ const baseResult: ScoringResult = {
     jobPostImportantTerms: ['python', 'kubernetes'],
     coverageRatio: 50,
   },
+  semanticMatches: ['dashboard'],
+  scoreNotes: [],
 };
 
 describe('exportResults', () => {
@@ -44,6 +46,20 @@ describe('exportResults', () => {
     expect(report).toContain('kubernetes');
     expect(report).toContain('Metrics and outcomes');
     expect(report).toContain('If accurate');
+    expect(report).toContain('Related-Term Matches');
+  });
+
+  it('names empty sections instead of leaving them blank', () => {
+    const report = buildMarkdownReport({
+      ...baseResult,
+      matchedKeywords: [],
+      missingKeywords: [],
+      missingSkills: [],
+      suggestedBullets: [],
+    });
+
+    expect(report).toContain('No matched keywords detected');
+    expect(report).toContain('No bullet prompts available');
   });
 
   it('builds a plain text report without markdown headings', () => {

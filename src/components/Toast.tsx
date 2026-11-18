@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface ToastProps {
   message: string;
@@ -88,16 +88,20 @@ interface ToastItem {
 
 export function useToast() {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const counter = useRef(0);
 
-  const addToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
-    const id = Date.now().toString();
+  // A counter keeps ids unique when two toasts are added in the same millisecond, and a
+  // stable callback keeps the autosave effects from re-running on every render.
+  const addToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    counter.current += 1;
+    const id = `toast-${Date.now().toString(36)}-${counter.current}`;
     setToasts(prev => [...prev, { id, message, type }]);
     return id;
-  };
+  }, []);
 
-  const removeToast = (id: string) => {
+  const removeToast = useCallback((id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id));
-  };
+  }, []);
 
   return { toasts, addToast, removeToast };
 }

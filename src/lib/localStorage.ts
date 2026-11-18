@@ -1,4 +1,9 @@
 import { ScoringResult } from './scoring';
+import { parseStoredResult } from './resultSchema';
+
+export const MATCH_HISTORY_KEY = 'resumeMatcher.matchHistory';
+// Key used by earlier versions; still read once so existing history is not lost.
+export const LEGACY_MATCH_HISTORY_KEY = 'matchHistory';
 
 const STORAGE_KEYS = {
   resumeText: 'resumeMatcher.resumeText',
@@ -13,125 +18,127 @@ export interface Preferences {
   compactView?: boolean;
 }
 
-function isLocalStorageAvailable(): boolean {
+let storageAvailability: boolean | null = null;
+
+/**
+ * Checked lazily and only in the browser: probing at module scope runs during prerender and
+ * touches Node's experimental localStorage global, which is not the browser's storage.
+ */
+export function isStorageAvailable(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (storageAvailability !== null) return storageAvailability;
+
   try {
     const test = '__localStorage_test__';
     localStorage.setItem(test, test);
     localStorage.removeItem(test);
-    return true;
+    storageAvailability = true;
   } catch {
+    storageAvailability = false;
+  }
+
+  return storageAvailability;
+}
+
+function writeKey(key: string, value: string | null): boolean {
+  if (!isStorageAvailable()) return false;
+  try {
+    if (value === null) {
+      localStorage.removeItem(key);
+    } else {
+      localStorage.setItem(key, value);
+    }
+    return true;
+  } catch (e) {
+    console.warn(`Failed to write ${key}:`, e);
     return false;
   }
 }
 
-export const isStorageAvailable = isLocalStorageAvailable();
-
-export function saveResumeText(text: string): void {
-  if (!isStorageAvailable) return;
+function readKey(key: string): string | null {
+  if (!isStorageAvailable()) return null;
   try {
-    if (!text) {
-      localStorage.removeItem(STORAGE_KEYS.resumeText);
-      return;
-    }
-    localStorage.setItem(STORAGE_KEYS.resumeText, text);
+    return localStorage.getItem(key);
   } catch (e) {
-    console.warn('Failed to save resume text:', e);
+    console.warn(`Failed to read ${key}:`, e);
+    return null;
   }
+}
+
+/** Returns false when the text could not be persisted (for example a full storage quota). */
+export function saveResumeText(text: string): boolean {
+  if (!text) return writeKey(STORAGE_KEYS.resumeText, null);
+  return writeKey(STORAGE_KEYS.resumeText, text);
 }
 
 export function clearResumeText(): void {
-  if (!isStorageAvailable) return;
-  try {
-    localStorage.removeItem(STORAGE_KEYS.resumeText);
-  } catch (e) {
-    console.warn('Failed to clear resume text:', e);
-  }
+  writeKey(STORAGE_KEYS.resumeText, null);
 }
 
 export function getResumeText(): string {
-  if (!isStorageAvailable) return '';
-  return localStorage.getItem(STORAGE_KEYS.resumeText) || '';
+  return readKey(STORAGE_KEYS.resumeText) || '';
 }
 
-export function saveJobPostText(text: string): void {
-  if (!isStorageAvailable) return;
-  try {
-    if (!text) {
-      localStorage.removeItem(STORAGE_KEYS.jobPostText);
-      return;
-    }
-    localStorage.setItem(STORAGE_KEYS.jobPostText, text);
-  } catch (e) {
-    console.warn('Failed to save job post text:', e);
-  }
+/** Returns false when the text could not be persisted (for example a full storage quota). */
+export function saveJobPostText(text: string): boolean {
+  if (!text) return writeKey(STORAGE_KEYS.jobPostText, null);
+  return writeKey(STORAGE_KEYS.jobPostText, text);
 }
 
 export function clearJobPostText(): void {
-  if (!isStorageAvailable) return;
-  try {
-    localStorage.removeItem(STORAGE_KEYS.jobPostText);
-  } catch (e) {
-    console.warn('Failed to clear job post text:', e);
-  }
+  writeKey(STORAGE_KEYS.jobPostText, null);
 }
 
 export function getJobPostText(): string {
-  if (!isStorageAvailable) return '';
-  return localStorage.getItem(STORAGE_KEYS.jobPostText) || '';
+  return readKey(STORAGE_KEYS.jobPostText) || '';
 }
 
-export function saveLastResult(result: ScoringResult): void {
-  if (!isStorageAvailable) return;
-  try {
-    localStorage.setItem(STORAGE_KEYS.lastResult, JSON.stringify(result));
-    localStorage.setItem(STORAGE_KEYS.lastAnalyzedAt, new Date().toISOString());
-  } catch (e) {
-    console.warn('Failed to save result:', e);
+/** Returns false when the result could not be persisted. */
+export function saveLastResult(result: ScoringResult): boolean {
+  const savedResult = writeKey(STORAGE_KEYS.lastResult, JSON.stringify(result));
+  if (savedResult) {
+    writeKey(STORAGE_KEYS.lastAnalyzedAt, new Date().toISOString());
   }
+  return savedResult;
 }
 
 export function getLastResult(): { result: ScoringResult | null; timestamp: string | null } {
-  if (!isStorageAvailable) return { result: null, timestamp: null };
+  const resultStr = readKey(STORAGE_KEYS.lastResult);
+  const timestamp = readKey(STORAGE_KEYS.lastAnalyzedAt);
+
+  if (!resultStr) return { result: null, timestamp: timestamp || null };
+
   try {
-    const resultStr = localStorage.getItem(STORAGE_KEYS.lastResult);
-    const timestamp = localStorage.getItem(STORAGE_KEYS.lastAnalyzedAt);
     return {
-      result: resultStr ? JSON.parse(resultStr) : null,
+      result: parseStoredResult(JSON.parse(resultStr)),
       timestamp: timestamp || null,
     };
   } catch (e) {
-    console.warn('Failed to get last result:', e);
+    console.warn('Failed to parse last result:', e);
     return { result: null, timestamp: null };
   }
 }
 
-export function savePreferences(prefs: Preferences): void {
-  if (!isStorageAvailable) return;
-  try {
-    localStorage.setItem(STORAGE_KEYS.preferences, JSON.stringify(prefs));
-  } catch (e) {
-    console.warn('Failed to save preferences:', e);
-  }
+export function savePreferences(prefs: Preferences): boolean {
+  return writeKey(STORAGE_KEYS.preferences, JSON.stringify(prefs));
 }
 
 export function getPreferences(): Preferences {
-  if (!isStorageAvailable) return {};
+  const prefsStr = readKey(STORAGE_KEYS.preferences);
+  if (!prefsStr) return {};
   try {
-    const prefsStr = localStorage.getItem(STORAGE_KEYS.preferences);
-    return prefsStr ? JSON.parse(prefsStr) : {};
+    const parsed = JSON.parse(prefsStr);
+    return typeof parsed === 'object' && parsed !== null ? parsed : {};
   } catch (e) {
     console.warn('Failed to get preferences:', e);
-    return {};
   }
+  return {};
 }
 
 export function clearAllData(): void {
-  if (!isStorageAvailable) return;
-  try {
-    Object.values(STORAGE_KEYS).forEach(key => {
-      localStorage.removeItem(key);
-    });
-  } catch (e) {
-    console.warn('Failed to clear data:', e);
-  }
+  Object.values(STORAGE_KEYS).forEach(key => {
+    writeKey(key, null);
+  });
+  writeKey(MATCH_HISTORY_KEY, null);
+  writeKey(LEGACY_MATCH_HISTORY_KEY, null);
 }

@@ -7,18 +7,24 @@ ResumeRadar is a private, browser-only resume matcher. Paste or upload a resume 
 - Local resume and job-post matching with no account, backend, or external AI calls.
 - PDF and DOCX text extraction in the browser.
 - Role modes for general, software, data, product, marketing, legal/compliance, and finance roles.
-- Score breakdown across keyword coverage, skills, phrase alignment, repeated job terms, and role focus.
+- Score breakdown across keyword coverage, skills, phrase alignment, repeated job terms, and role focus, with per-signal point contributions that add up to the final score.
+- Related-term matching, so wording such as "led" can stand in for "leadership" without claiming the exact keyword.
+- Signals that cannot be measured (for example no repeated terms in a short job post) are left out of the score and named in the report.
 - Missing skills and missing keywords.
 - Job-post insights for detected role, seniority, required/preferred skills, responsibilities, and top terms.
 - Resume quality checks for metrics, action verbs, repeated phrasing, skills visibility, and bullet readability.
 - Safer suggested bullet prompts that ask users to add details only when accurate.
 - Restorable local match history.
-- Export actions for copying, sharing, Markdown download, and JSON download.
+- Export actions for copying, sharing, and Markdown, text, and JSON downloads.
 - Light/dark theme support.
 
 ## Local-Only Design
 
-ResumeRadar runs analysis in the browser. Resume text, job text, extracted file text, match results, and history are stored only in the current browser through `localStorage`. Files are parsed client-side with `pdfjs-dist` and `mammoth`.
+ResumeRadar runs analysis in the browser. Resume text, job text, extracted file text, match results, and history are stored only in the current browser through `localStorage`. Files are parsed client-side with `pdfjs-dist` and `mammoth`, keeping the line structure pdf.js recovers.
+
+Analysis runs synchronously, so each field is limited to 200,000 characters; longer text gets a clear message instead of a frozen tab. Stored results and history are validated when they are read back, so data written by an older version cannot crash the dashboard.
+
+Scoring rules, known trade-offs, and the reasoning behind each decision are documented in [IMPROVEMENT_PLAN.md](IMPROVEMENT_PLAN.md).
 
 ## Development
 
@@ -42,6 +48,8 @@ npm run build
 - `src/app/page.tsx` - main single-page experience.
 - `src/components/` - input, history, results, export, scoring, and feedback UI.
 - `src/lib/scoring.ts` - local scoring, role modes, quality checks, and job insights.
+- `src/lib/resultSchema.ts` - validation and back-filling for results read from storage.
+- `IMPROVEMENT_PLAN.md` - analysis of the current implementation and the improvement plan.
 - `src/lib/documentExtractor.ts` - browser PDF/DOCX extraction.
 - `src/lib/matchHistory.ts` - local match history storage.
 - `src/lib/exportResults.ts` - Markdown, text, and JSON report formatting.

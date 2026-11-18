@@ -17,6 +17,19 @@ export function MatchHistory({ onSelectEntry, refreshSignal = 0 }: MatchHistoryP
     setHistory(getMatchHistory());
   }, [isOpen, refreshSignal]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen]);
+
   const handleClear = () => {
     clearMatchHistory();
     setHistory([]);
@@ -74,7 +87,11 @@ export function MatchHistory({ onSelectEntry, refreshSignal = 0 }: MatchHistoryP
           />
           
           {/* Panel */}
-          <div className='absolute right-0 top-full mt-2 w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-50 overflow-hidden'>
+          <div
+            className='absolute right-0 top-full mt-2 w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-50 overflow-hidden'
+            role='dialog'
+            aria-label='Match history'
+          >
             <div className='flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700'>
               <h3 className='font-semibold text-gray-900 dark:text-gray-100'>Match History</h3>
               <button

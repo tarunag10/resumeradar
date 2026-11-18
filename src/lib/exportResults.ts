@@ -4,7 +4,14 @@ function listOrFallback(items: string[], fallback = 'None detected'): string {
   return items.length > 0 ? items.join(', ') : fallback;
 }
 
+function bulletsOrFallback(lines: string[], fallback: string): string[] {
+  return lines.length > 0 ? lines : [`- ${fallback}`];
+}
+
 export function buildMarkdownReport(result: ScoringResult): string {
+  const semanticMatches = result.semanticMatches ?? [];
+  const scoreNotes = result.scoreNotes ?? [];
+
   const lines = [
     '# ResumeRadar Match Report',
     '',
@@ -14,16 +21,30 @@ export function buildMarkdownReport(result: ScoringResult): string {
     `Seniority: ${result.jobInsights.seniority}`,
     '',
     '## Score Breakdown',
-    ...result.scoreBreakdown.map(item => `- ${item.label}: ${item.score}% (${item.weight}% weight) - ${item.detail}`),
+    ...result.scoreBreakdown.map(item => {
+      const contribution = typeof item.contribution === 'number' ? `, adds ${item.contribution} pts` : '';
+      return `- ${item.label}: ${item.score}% (${item.weight}% weight${contribution}) - ${item.detail}`;
+    }),
+    ...(result.repetitionPenalty > 0 ? [`- Repetition penalty: -${result.repetitionPenalty} points`] : []),
+    ...scoreNotes.map(note => `- Note: ${note}`),
     '',
     '## Matched Keywords',
-    ...result.matchedKeywords.slice(0, 12).map(item => `- ${item.keyword}${item.count > 1 ? ` (${item.count})` : ''}`),
+    ...bulletsOrFallback(
+      result.matchedKeywords.slice(0, 12).map(item => `- ${item.keyword}${item.count > 1 ? ` (${item.count})` : ''}`),
+      'No matched keywords detected'
+    ),
     '',
     '## Missing Keywords',
-    ...result.missingKeywords.slice(0, 12).map(item => `- ${item.keyword}${item.count > 1 ? ` (${item.count})` : ''}`),
+    ...bulletsOrFallback(
+      result.missingKeywords.slice(0, 12).map(item => `- ${item.keyword}${item.count > 1 ? ` (${item.count})` : ''}`),
+      'No missing keywords detected'
+    ),
     '',
     '## Missing Skills',
-    ...result.missingSkills.slice(0, 12).map(item => `- ${item.skill} (${item.category})`),
+    ...bulletsOrFallback(
+      result.missingSkills.slice(0, 12).map(item => `- ${item.skill} (${item.category})`),
+      'No missing skills detected'
+    ),
     '',
     '## Job Insights',
     `- Required skills: ${listOrFallback(result.jobInsights.requiredSkills)}`,
@@ -31,11 +52,17 @@ export function buildMarkdownReport(result: ScoringResult): string {
     `- Top terms: ${listOrFallback(result.jobInsights.topTerms)}`,
     ...result.jobInsights.responsibilities.map(item => `- Responsibility: ${item}`),
     '',
+    '## Related-Term Matches',
+    `- ${listOrFallback(semanticMatches, 'None detected')}`,
+    '',
     '## Resume Quality Checks',
-    ...result.resumeQualityChecks.map(item => `- ${item.label}: ${item.detail} Action: ${item.action}`),
+    ...bulletsOrFallback(
+      result.resumeQualityChecks.map(item => `- ${item.label}: ${item.detail} Action: ${item.action}`),
+      'No quality checks available'
+    ),
     '',
     '## Suggested Resume Bullets',
-    ...result.suggestedBullets.map(item => `- ${item}`),
+    ...bulletsOrFallback(result.suggestedBullets, 'No bullet prompts available'),
     '',
     'Generated locally by ResumeRadar.',
   ];
@@ -45,9 +72,9 @@ export function buildMarkdownReport(result: ScoringResult): string {
 
 export function buildPlainTextReport(result: ScoringResult): string {
   return buildMarkdownReport(result)
-    .replace(/^#\s+/gm, '')
-    .replace(/^##\s+/gm, '')
-    .replace(/^- /gm, '- ');
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\*\*/g, '')
+    .trim();
 }
 
 export function buildJsonReport(result: ScoringResult): string {

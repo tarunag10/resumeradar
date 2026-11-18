@@ -79,10 +79,15 @@ export function FileUpload({ label, hasExistingText = false, onTextExtracted, on
   }, [processFile]);
 
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
+    const input = e.target;
+    const files = input.files;
+
     if (files && files.length > 0) {
       await processFile(files[0]);
     }
+
+    // Reset so choosing the same file again still fires a change event.
+    input.value = '';
   }, [processFile]);
 
   const handleClear = useCallback(() => {

@@ -1,4 +1,4 @@
-import { extractSkillsFromText, buildSkillLookup } from './skillDictionary';
+import { extractSkillsFromText, getSkillByName, mentionsSkill } from './skillDictionary';
 import { findRepeatedPhrases, calculateKeywordOverlap, extractAllPhrases, getNormalizedTokens } from './textProcessing';
 
 export type RoleMode = 'general' | 'software' | 'data' | 'product' | 'marketing' | 'legal' | 'finance';
@@ -8,6 +8,8 @@ export interface ScoreBreakdownItem {
   score: number;
   weight: number;
   detail: string;
+  /** Points this signal added to the final score, after weight normalisation. */
+  contribution?: number;
 }
 
 export interface ResumeQualityCheck {
@@ -50,6 +52,10 @@ export interface ScoringResult {
     jobPostImportantTerms: string[];
     coverageRatio: number;
   };
+  /** Job terms that were matched through related wording rather than an exact token. */
+  semanticMatches: string[];
+  /** Signals that were left out of the score, and why. */
+  scoreNotes: string[];
 }
 
 // Phrase replacement suggestions
@@ -77,47 +83,55 @@ const SYNONYM_GROUPS: Map<string, Set<string>> = new Map([
   ['development', new Set(['development', 'developer', 'devops', 'engineering', 'software'])],
 ]);
 
+type RoleWeights = { keyword: number; skill: number; phrase: number; repeated: number; role: number };
+
 const ROLE_PROFILES: Record<RoleMode, {
   label: string;
-  weights: { keyword: number; skill: number; phrase: number; repeated: number; role: number };
+  weights: RoleWeights;
   focusSkills: string[];
 }> = {
   general: {
     label: 'General',
-    weights: { keyword: 0.35, skill: 0.30, phrase: 0.15, repeated: 0.10, role: 0 },
+    weights: { keyword: 0.38, skill: 0.32, phrase: 0.16, repeated: 0.14, role: 0 },
     focusSkills: [],
   },
   software: {
     label: 'Software',
-    weights: { keyword: 0.30, skill: 0.36, phrase: 0.12, repeated: 0.10, role: 0.07 },
+    weights: { keyword: 0.33, skill: 0.35, phrase: 0.12, repeated: 0.10, role: 0.10 },
     focusSkills: ['javascript', 'typescript', 'python', 'react', 'node.js', 'aws', 'docker', 'kubernetes', 'microservices', 'ci/cd', 'rest api'],
   },
   data: {
     label: 'Data',
-    weights: { keyword: 0.34, skill: 0.34, phrase: 0.10, repeated: 0.10, role: 0.07 },
+    weights: { keyword: 0.35, skill: 0.33, phrase: 0.11, repeated: 0.11, role: 0.10 },
     focusSkills: ['python', 'sql', 'excel', 'tableau', 'power bi', 'data analysis', 'dashboarding', 'data visualization', 'etl', 'machine learning'],
   },
   product: {
     label: 'Product',
-    weights: { keyword: 0.32, skill: 0.30, phrase: 0.13, repeated: 0.10, role: 0.10 },
+    weights: { keyword: 0.33, skill: 0.28, phrase: 0.12, repeated: 0.11, role: 0.16 },
     focusSkills: ['roadmap', 'prioritization', 'user research', 'experimentation', 'product strategy', 'stakeholder management', 'requirements gathering'],
   },
   marketing: {
     label: 'Marketing',
-    weights: { keyword: 0.36, skill: 0.25, phrase: 0.15, repeated: 0.12, role: 0.07 },
+    weights: { keyword: 0.37, skill: 0.25, phrase: 0.15, repeated: 0.13, role: 0.10 },
     focusSkills: ['market research', 'customer segmentation', 'a/b testing', 'strategy', 'reporting', 'data analysis'],
   },
   legal: {
     label: 'Legal and compliance',
-    weights: { keyword: 0.38, skill: 0.24, phrase: 0.14, repeated: 0.12, role: 0.07 },
+    weights: { keyword: 0.39, skill: 0.23, phrase: 0.14, repeated: 0.14, role: 0.10 },
     focusSkills: ['stakeholder management', 'reporting', 'requirements gathering', 'critical thinking', 'communication', 'organization'],
   },
   finance: {
     label: 'Finance',
-    weights: { keyword: 0.34, skill: 0.30, phrase: 0.12, repeated: 0.12, role: 0.07 },
+    weights: { keyword: 0.35, skill: 0.30, phrase: 0.12, repeated: 0.13, role: 0.10 },
     focusSkills: ['excel', 'sql', 'forecasting', 'budgeting', 'reporting', 'data analysis', 'business intelligence'],
   },
 };
+
+/** Sum of a role profile's signal weights. Every profile must total exactly 1. */
+export function getRoleWeightTotal(roleMode: RoleMode): number {
+  const weights = (ROLE_PROFILES[roleMode] || ROLE_PROFILES.general).weights;
+  return weights.keyword + weights.skill + weights.phrase + weights.repeated + weights.role;
+}
 
 // Create reverse lookup: word -> canonical form
 function buildSynonymLookup(): Map<string, string> {
@@ -130,77 +144,65 @@ function buildSynonymLookup(): Map<string, string> {
   return lookup;
 }
 
-// Calculate document frequency-based importance (simpler than TF-IDF with small corpus)
-function calculateDocumentImportance(text: string, allTexts: string[]): Map<string, number> {
+const SYNONYM_LOOKUP = buildSynonymLookup();
+
+function canonicalToken(token: string): string {
+  return SYNONYM_LOOKUP.get(token) || token;
+}
+
+/**
+ * Term importance is measured inside a single document: how often the term appears,
+ * normalised against the most frequent term (0-1). A two-document IDF would give terms
+ * that appear in *both* the resume and the job post a lower weight than terms that appear
+ * only in the job post, which penalises exactly the coverage the score is meant to reward.
+ */
+function calculateTermImportance(text: string): Map<string, number> {
   const tokens = getNormalizedTokens(text);
   const tokenCounts = new Map<string, number>();
-  
-  // Calculate term frequency
+
   tokens.forEach(token => {
     tokenCounts.set(token, (tokenCounts.get(token) || 0) + 1);
   });
-  
-  // Calculate document frequency for each term
-  // Terms that appear in fewer documents but with higher frequency are more important
-  const importanceScores = new Map<string, number>();
-  tokenCounts.forEach((count, term) => {
-    // Count how many texts contain this term
-    let docCount = 0;
-    allTexts.forEach(t => {
-      if (t.toLowerCase().includes(term)) {
-        docCount++;
-      }
-    });
-    
-    // TF * inverse document frequency factor (capped to avoid log issues with small corpus)
-    const idfFactor = allTexts.length / Math.max(docCount, 1);
-    const tf = count / Math.max(tokens.length, 1);
-    // Normalize to 0-1 range
-    importanceScores.set(term, tf * Math.min(idfFactor, 10));
+
+  let maxCount = 0;
+  tokenCounts.forEach(count => {
+    if (count > maxCount) maxCount = count;
   });
-  
-  return importanceScores;
+
+  const importance = new Map<string, number>();
+  if (maxCount === 0) return importance;
+
+  tokenCounts.forEach((count, term) => {
+    importance.set(term, count / maxCount);
+  });
+
+  return importance;
 }
 
-// Find semantic matches using synonym groups
+// Find semantic matches using synonym groups, single pass over each token set
 function findSemanticMatches(resumeTokens: Set<string>, jobTokens: Set<string>): Set<string> {
-  const synonymLookup = buildSynonymLookup();
+  const resumeCanonical = new Set<string>();
+  resumeTokens.forEach(token => resumeCanonical.add(canonicalToken(token)));
+
   const matched = new Set<string>();
-  
-  // Check if any resume token synonyms match job tokens
+
   jobTokens.forEach(jobToken => {
-    const jobCanonical = synonymLookup.get(jobToken) || jobToken;
-    
-    resumeTokens.forEach(resumeToken => {
-      const resumeCanonical = synonymLookup.get(resumeToken) || resumeToken;
-      
-      // Direct match or synonym match
-      if (resumeToken === jobToken || resumeCanonical === jobCanonical || 
-          SYNONYM_GROUPS.has(resumeCanonical) && SYNONYM_GROUPS.get(resumeCanonical)!.has(jobToken)) {
-        matched.add(jobToken);
-        matched.add(resumeToken);
-      }
-    });
+    if (resumeTokens.has(jobToken)) return;
+    if (!SYNONYM_LOOKUP.has(jobToken)) return;
+    if (resumeCanonical.has(canonicalToken(jobToken))) {
+      matched.add(jobToken);
+    }
   });
-  
+
   return matched;
 }
 
-// Extract important terms using TF-IDF
-function extractImportantTerms(tfidfScores: Map<string, number>, threshold: number = 0.1): string[] {
-  const sortedTerms: Array<{ term: string; score: number }> = [];
-  
-  tfidfScores.forEach((score, term) => {
-    sortedTerms.push({ term, score });
-  });
-  
-  sortedTerms.sort((a, b) => b.score - a.score);
-  
-  // Return top terms above threshold
-  return sortedTerms
-    .filter(t => t.score >= threshold)
-    .slice(0, 15)
-    .map(t => t.term);
+// Top terms by importance, used for the coverage summary
+function extractImportantTerms(importance: Map<string, number>, limit = 15): string[] {
+  return Array.from(importance.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([term]) => term);
 }
 
 function detectSeniority(text: string): string {
@@ -230,35 +232,80 @@ function extractResponsibilities(jobPostText: string): string[] {
     .slice(0, 5);
 }
 
-function extractRequiredPreferredSkills(jobPostText: string, jobSkills: Set<string>): { required: string[]; preferred: string[] } {
-  const lower = jobPostText.toLowerCase();
-  const required = new Set<string>();
-  const preferred = new Set<string>();
+const SECTION_HEADINGS: Array<{ kind: 'required' | 'preferred' | 'neutral'; pattern: RegExp }> = [
+  { kind: 'preferred', pattern: /^(preferred|nice to have|bonus|desirable|good to have|plus(es)?)\b/i },
+  { kind: 'required', pattern: /^(requirements?|required|must[- ]have|essential|qualifications?|what you.{0,3}ll need|who you are|minimum)\b/i },
+  { kind: 'neutral', pattern: /^(responsibilities|what you.{0,3}ll do|about|benefits|we offer|compensation|perks|the role|overview|description)\b/i },
+];
 
-  for (const skill of jobSkills) {
-    const index = lower.indexOf(skill);
-    const windowText = index >= 0 ? lower.slice(Math.max(0, index - 80), index + skill.length + 80) : lower;
-    if (/\b(preferred|nice to have|bonus|desirable|plus)\b/.test(windowText)) {
-      preferred.add(skill);
-    } else if (/\b(required|requirements|must|need|essential|qualifications|experience with)\b/.test(windowText)) {
-      required.add(skill);
+function classifySkillByWindow(jobPostText: string, skill: string): 'required' | 'preferred' {
+  const lower = jobPostText.toLowerCase();
+  const index = lower.indexOf(skill);
+  if (index < 0) return 'required';
+
+  const windowText = lower.slice(Math.max(0, index - 80), index + skill.length + 80);
+  return /\b(preferred|nice to have|bonus|desirable|plus)\b/.test(windowText) ? 'preferred' : 'required';
+}
+
+/**
+ * Classify job-post skills as required or preferred using section headings, line by line.
+ * Heading context is more reliable than a fixed character window, and a skill listed under
+ * multiple headings is treated as required.
+ */
+function extractRequiredPreferredSkills(
+  jobPostText: string,
+  jobSkills: Set<string>
+): { required: string[]; preferred: string[] } {
+  if (jobSkills.size === 0) return { required: [], preferred: [] };
+
+  const assigned = new Map<string, 'required' | 'preferred'>();
+  let section: 'required' | 'preferred' | null = null;
+
+  for (const rawLine of jobPostText.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    const heading = SECTION_HEADINGS.find(item => item.pattern.test(line));
+    if (heading) {
+      section = heading.kind === 'neutral' ? null : heading.kind;
+      // Headings can list skills inline after the colon, so fall through to line scanning.
+    }
+
+    for (const skill of jobSkills) {
+      if (!mentionsSkill(line, skill)) continue;
+
+      const existing = assigned.get(skill);
+      if (existing === 'required') continue;
+
+      const kind = section || classifySkillByWindow(jobPostText, skill);
+      if (kind === 'required' || !existing) {
+        assigned.set(skill, kind);
+      }
     }
   }
 
-  if (required.size === 0) {
-    Array.from(jobSkills)
-      .sort((a, b) => {
-        const aIndex = lower.indexOf(a);
-        const bIndex = lower.indexOf(b);
-        return (aIndex === -1 ? Number.MAX_SAFE_INTEGER : aIndex) - (bIndex === -1 ? Number.MAX_SAFE_INTEGER : bIndex);
-      })
-      .slice(0, 8)
-      .forEach(skill => required.add(skill));
+  const lower = jobPostText.toLowerCase();
+  const ordered = Array.from(assigned.keys()).sort((a, b) => {
+    const aIndex = lower.indexOf(a);
+    const bIndex = lower.indexOf(b);
+    return (aIndex === -1 ? Number.MAX_SAFE_INTEGER : aIndex) - (bIndex === -1 ? Number.MAX_SAFE_INTEGER : bIndex);
+  });
+
+  const required = ordered.filter(skill => assigned.get(skill) === 'required');
+  const preferred = ordered.filter(skill => assigned.get(skill) === 'preferred');
+
+  // A job post that never says "required" still has core skills: use the first ones seen.
+  if (required.length === 0) {
+    ordered.slice(0, 8).forEach(skill => {
+      required.push(skill);
+      const index = preferred.indexOf(skill);
+      if (index >= 0) preferred.splice(index, 1);
+    });
   }
 
   return {
-    required: Array.from(required).slice(0, 8),
-    preferred: Array.from(preferred).filter(skill => !required.has(skill)).slice(0, 8),
+    required: required.slice(0, 8),
+    preferred: preferred.filter(skill => !required.includes(skill)).slice(0, 8),
   };
 }
 
@@ -318,86 +365,93 @@ function calculateRoleFocusScore(roleMode: RoleMode, resumeSkills: Set<string>, 
   return (matched / focusSet.length) * 100;
 }
 
+/**
+ * Turn raw weights into integer percentages that always total exactly 100, so the
+ * breakdown the UI shows can be added up to the final score.
+ */
+function toPercentWeights(values: number[]): number[] {
+  const total = values.reduce((sum, value) => sum + value, 0) || 1;
+  const exact = values.map(value => (value / total) * 100);
+  const floored = exact.map(value => Math.floor(value));
+
+  let remainder = 100 - floored.reduce((sum, value) => sum + value, 0);
+  const byFraction = exact
+    .map((value, index) => ({ index, fraction: value - Math.floor(value) }))
+    .sort((a, b) => b.fraction - a.fraction);
+
+  for (let i = 0; remainder > 0 && byFraction.length > 0; i++) {
+    floored[byFraction[i % byFraction.length].index] += 1;
+    remainder -= 1;
+  }
+
+  return floored;
+}
+
+function directoryMatchSkills(
+  resumeSkills: Set<string>,
+  jobSkills: Set<string>
+): { matchedSkills: Array<{ skill: string; category: string }>; missingSkills: Array<{ skill: string; category: string }> } {
+  const matchedSkills: Array<{ skill: string; category: string }> = [];
+  const missingSkills: Array<{ skill: string; category: string }> = [];
+
+  Array.from(jobSkills)
+    .sort()
+    .forEach(skill => {
+      const entry = { skill, category: getSkillByName(skill)?.category || 'unknown' };
+      if (resumeSkills.has(skill)) {
+        matchedSkills.push(entry);
+      } else {
+        missingSkills.push(entry);
+      }
+    });
+
+  return { matchedSkills, missingSkills };
+}
+
 export function analyzeMatch(resumeText: string, jobPostText: string, roleMode: RoleMode = 'general'): ScoringResult {
-  const skillLookup = buildSkillLookup();
   const profile = ROLE_PROFILES[roleMode] || ROLE_PROFILES.general;
-  
+
   // Extract skills from both texts
   const resumeSkills = extractSkillsFromText(resumeText);
   const jobSkills = extractSkillsFromText(jobPostText);
-  
-  // Find matched and missing skills
-  const matchedSkills: Array<{ skill: string; category: string }> = [];
-  const missingSkills: Array<{ skill: string; category: string }> = [];
-  
-  const allSkillsData = new Map<string, { category: string }>();
-  for (const skill of resumeSkills) {
-    allSkillsData.set(skill, { category: skillLookup.get(skill)?.category || 'unknown' });
-  }
-  
-  // Get skill categories
-  for (const skill of jobSkills) {
-    const skillData = skillLookup.get(skill);
-    if (skillData) {
-      allSkillsData.set(skill, { category: skillData.category });
-    }
-  }
-  
-  for (const [skill, data] of allSkillsData) {
-    if (resumeSkills.has(skill) && jobSkills.has(skill)) {
-      matchedSkills.push({ skill, category: data.category });
-    } else if (jobSkills.has(skill)) {
-      missingSkills.push({ skill, category: data.category });
-    }
-  }
-  
-  // Calculate document importance for better keyword importance scoring
-  const corpus = [resumeText, jobPostText];
-  const resumeImportance = calculateDocumentImportance(resumeText, corpus);
-  const jobImportance = calculateDocumentImportance(jobPostText, corpus);
-  
-  // Extract important terms using document importance
-  const resumeImportantTerms = extractImportantTerms(resumeImportance);
-  const jobImportantTerms = extractImportantTerms(jobImportance);
-  
-  // Keyword overlap with TF-IDF weighting
-  const { matched, allJobKeywords } = calculateKeywordOverlap(resumeText, jobPostText);
-  
-  // Find semantic matches
+  const { matchedSkills, missingSkills } = directoryMatchSkills(resumeSkills, jobSkills);
+
+  // Token sets are shared by several signals below
   const resumeTokens = new Set(getNormalizedTokens(resumeText));
   const jobTokens = new Set(getNormalizedTokens(jobPostText));
+
+  const resumeImportance = calculateTermImportance(resumeText);
+  const jobImportance = calculateTermImportance(jobPostText);
+
+  // Keyword overlap, including matches found through related wording
+  const { matched, allJobKeywords } = calculateKeywordOverlap(resumeText, jobPostText);
   const semanticMatches = findSemanticMatches(resumeTokens, jobTokens);
-  
-  // Calculate weighted keyword score (importance-based)
-  let weightedKeywordScore = 0;
-  let totalWeight = 0;
-  
+
+  // Weight each job term by how often the job post uses it
+  let totalKeywordWeight = 0;
+  let matchedKeywordWeight = 0;
+
   allJobKeywords.forEach((count, keyword) => {
-    const importance = jobImportance.get(keyword) || 0;
-    if (importance > 0) {
-      totalWeight += importance;
-      if (matched.has(keyword) || semanticMatches.has(keyword)) {
-        weightedKeywordScore += importance;
-      }
-    } else {
-      // Fallback for terms not in importance scores
-      totalWeight += 1;
-      if (matched.has(keyword) || semanticMatches.has(keyword)) {
-        weightedKeywordScore += 1;
-      }
+    totalKeywordWeight += count;
+    if (matched.has(keyword) || semanticMatches.has(keyword)) {
+      matchedKeywordWeight += count;
     }
   });
-  
-  const keywordScore = totalWeight > 0 ? (weightedKeywordScore / totalWeight) * 100 : 0;
-  
+
+  const keywordScore = totalKeywordWeight > 0
+    ? (matchedKeywordWeight / totalKeywordWeight) * 100
+    : 0;
+
+  const byImportance = (a: { importance: number }, b: { importance: number }) => b.importance - a.importance;
+
   const matchedKeywords = Array.from(matched.entries())
-    .map(([keyword, count]) => ({ 
-      keyword, 
-      count, 
-      importance: jobImportance.get(keyword) || 0 
+    .map(([keyword, count]) => ({
+      keyword,
+      count,
+      importance: jobImportance.get(keyword) || 0,
     }))
-    .sort((a, b) => b.importance - a.importance);
-  
+    .sort(byImportance);
+
   const missingKeywords = Array.from(allJobKeywords.entries())
     .filter(([keyword]) => !matched.has(keyword) && !semanticMatches.has(keyword))
     .map(([keyword, count]) => ({
@@ -410,51 +464,51 @@ export function analyzeMatch(resumeText: string, jobPostText: string, roleMode: 
   const allKeywords = Array.from(allJobKeywords.entries())
     .map(([keyword, count]) => ({ keyword, count }))
     .sort((a, b) => b.count - a.count);
-  
-  // Calculate skill score
+
+  // Skill score only means something when the job post mentions a known skill
   const skillScore = jobSkills.size > 0
     ? (matchedSkills.length / jobSkills.size) * 100
     : 0;
-  
-  // Phrase overlap (2-word and 3-word phrases)
+
+  // Phrase overlap (2-word, 3-word and 4-word phrases)
   const resumePhrases = extractAllPhrases(resumeText);
   const jobPhrases = extractAllPhrases(jobPostText);
-  
+
   let phraseMatches = 0;
   let totalJobPhrases = 0;
-  
+
   jobPhrases.forEach((count, phrase) => {
     totalJobPhrases += count;
     if (resumePhrases.has(phrase)) {
       phraseMatches += Math.min(count, resumePhrases.get(phrase)!);
     }
   });
-  
+
   const phraseScore = totalJobPhrases > 0
     ? (phraseMatches / totalJobPhrases) * 100
     : 0;
-  
+
   // Repeated job term score - reward covering terms that appear multiple times in job post
   const importantTerms = Array.from(allJobKeywords.entries())
     .filter(([, count]) => count >= 2)
     .map(([keyword]) => keyword);
-  
+
   let coveredImportantTerms = 0;
-  
+
   for (const term of importantTerms) {
-    if (resumeTokens.has(term) || resumeText.toLowerCase().includes(term)) {
+    if (resumeTokens.has(term) || semanticMatches.has(term)) {
       coveredImportantTerms++;
     }
   }
-  
+
   const repeatedJobTermScore = importantTerms.length > 0
     ? (coveredImportantTerms / importantTerms.length) * 100
-    : 50; // Neutral if no repeated terms
-  
+    : 0;
+
   // Repetition penalty
   const repeatedPhrasesData = findRepeatedPhrases(resumeText);
   let repetitionPenalty = 0;
-  
+
   if (repeatedPhrasesData.length <= 2) {
     repetitionPenalty = 0;
   } else if (repeatedPhrasesData.length <= 5) {
@@ -462,82 +516,104 @@ export function analyzeMatch(resumeText: string, jobPostText: string, roleMode: 
   } else {
     repetitionPenalty = 5;
   }
-  
+
   const roleFocusScore = roleMode === 'general'
     ? 0
     : calculateRoleFocusScore(roleMode, resumeSkills, jobSkills);
 
-  // Calculate final score with improved weights
-  const semanticBonus = Math.min(semanticMatches.size * 0.5, 10); // Scale bonus with coverage, max 10 points
-  let matchScore = 
-    keywordScore * profile.weights.keyword +
-    skillScore * profile.weights.skill +
-    phraseScore * profile.weights.phrase +
-    repeatedJobTermScore * profile.weights.repeated +
-    roleFocusScore * profile.weights.role +
-    semanticBonus - // Scaled bonus for semantic matches
-    repetitionPenalty;
-  
-  // Clamp between 0 and 100
-  matchScore = Math.max(0, Math.min(100, matchScore));
-  
+  // Only signals that can actually be measured take part in the score. Their weights are
+  // renormalised over what is available, so a short job post cannot hand out free points
+  // and every role mode stays on the same 0-100 scale.
+  const signals: Array<{ label: string; score: number; weight: number; detail: string }> = [];
+  const scoreNotes: string[] = [];
+
+  signals.push({
+    label: 'Keywords',
+    score: keywordScore,
+    weight: profile.weights.keyword,
+    detail: semanticMatches.size > 0
+      ? `Coverage of job-post terms in your resume, including ${semanticMatches.size} matched through related wording.`
+      : 'Coverage of important job-post terms in your resume.',
+  });
+
+  if (jobSkills.size > 0) {
+    signals.push({
+      label: 'Skills',
+      score: skillScore,
+      weight: profile.weights.skill,
+      detail: 'Detected skill overlap between the resume and job post.',
+    });
+  } else {
+    scoreNotes.push('No known skills were detected in the job post, so the skills signal was left out of the score.');
+  }
+
+  if (totalJobPhrases > 0) {
+    signals.push({
+      label: 'Phrase alignment',
+      score: phraseScore,
+      weight: profile.weights.phrase,
+      detail: 'Shared two-, three- and four-word phrases that signal role alignment.',
+    });
+  } else {
+    scoreNotes.push('The job post is too short to compare phrases, so the phrase signal was left out of the score.');
+  }
+
+  if (importantTerms.length > 0) {
+    signals.push({
+      label: 'Repeated job terms',
+      score: repeatedJobTermScore,
+      weight: profile.weights.repeated,
+      detail: 'Coverage of terms the job post repeats multiple times.',
+    });
+  } else {
+    scoreNotes.push('The job post does not repeat any term, so the repeated-terms signal was left out of the score.');
+  }
+
+  if (roleMode !== 'general') {
+    signals.push({
+      label: `${profile.label} Role focus`,
+      score: roleFocusScore,
+      weight: profile.weights.role,
+      detail: `Extra weighting for ${profile.label.toLowerCase()} skills and responsibilities.`,
+    });
+  }
+
+  const percentWeights = toPercentWeights(signals.map(signal => signal.weight));
+
+  const scoreBreakdown: ScoreBreakdownItem[] = signals.map((signal, index) => ({
+    label: signal.label,
+    score: Math.round(signal.score),
+    weight: percentWeights[index],
+    detail: signal.detail,
+    contribution: Math.round(signal.score * percentWeights[index] / 100 * 10) / 10,
+  }));
+
+  const weightedScore = signals.reduce(
+    (sum, signal, index) => sum + signal.score * (percentWeights[index] / 100),
+    0
+  );
+
+  const matchScore = Math.max(0, Math.min(100, Math.round(weightedScore - repetitionPenalty)));
+
   // Generate phrase suggestions
   const repeatedPhrases = repeatedPhrasesData.slice(0, 10).map(({ phrase, count }) => ({
     phrase,
     count,
-    suggestion: PHRASE_SUGGESTIONS[phrase.toLowerCase()] || 
+    suggestion: PHRASE_SUGGESTIONS[phrase.toLowerCase()] ||
       'Consider replacing with more specific action verbs that describe your actual contribution.',
   }));
-  
-  // Calculate TF-IDF coverage ratio
-  const coveredImportantTermsSet = new Set<string>();
-  resumeImportance.forEach((_, term) => {
-    if (jobImportance.has(term)) {
-      coveredImportantTermsSet.add(term);
-    }
-  });
-  
-  const coverageRatio = jobImportantTerms.length > 0 
-    ? (coveredImportantTermsSet.size / jobImportantTerms.length) * 100 
+
+  const jobImportantTerms = extractImportantTerms(jobImportance);
+  const resumeImportantTerms = extractImportantTerms(resumeImportance);
+  const coveredTopTerms = jobImportantTerms.filter(
+    term => resumeTokens.has(term) || semanticMatches.has(term)
+  ).length;
+  const coverageRatio = jobImportantTerms.length > 0
+    ? (coveredTopTerms / jobImportantTerms.length) * 100
     : 0;
-  
+
   // Generate suggested bullets based on matched skills and missing skills
   const suggestedBullets = generateSuggestedBullets(matchedSkills, missingSkills, jobPostText);
-  const scoreBreakdown: ScoreBreakdownItem[] = [
-    {
-      label: 'Keywords',
-      score: Math.round(keywordScore),
-      weight: Math.round(profile.weights.keyword * 100),
-      detail: 'Coverage of important job-post terms in your resume.',
-    },
-    {
-      label: 'Skills',
-      score: Math.round(skillScore),
-      weight: Math.round(profile.weights.skill * 100),
-      detail: 'Detected skill overlap between the resume and job post.',
-    },
-    {
-      label: 'Phrase alignment',
-      score: Math.round(phraseScore),
-      weight: Math.round(profile.weights.phrase * 100),
-      detail: 'Shared two- and three-word phrases that signal role alignment.',
-    },
-    {
-      label: 'Repeated job terms',
-      score: Math.round(repeatedJobTermScore),
-      weight: Math.round(profile.weights.repeated * 100),
-      detail: 'Coverage of terms the job post repeats multiple times.',
-    },
-  ];
-
-  if (roleMode !== 'general') {
-    scoreBreakdown.push({
-      label: `${profile.label} Role focus`,
-      score: Math.round(roleFocusScore),
-      weight: Math.round(profile.weights.role * 100),
-      detail: `Extra weighting for ${profile.label.toLowerCase()} skills and responsibilities.`,
-    });
-  }
 
   const requiredPreferredSkills = extractRequiredPreferredSkills(jobPostText, jobSkills);
   const jobInsights: JobInsights = {
@@ -548,9 +624,9 @@ export function analyzeMatch(resumeText: string, jobPostText: string, roleMode: 
     responsibilities: extractResponsibilities(jobPostText),
     topTerms: allKeywords.slice(0, 10).map(item => item.keyword),
   };
-  
+
   return {
-    matchScore: Math.round(matchScore),
+    matchScore,
     keywordScore: Math.round(keywordScore),
     skillScore: Math.round(skillScore),
     phraseScore: Math.round(phraseScore),
@@ -572,6 +648,8 @@ export function analyzeMatch(resumeText: string, jobPostText: string, roleMode: 
       jobPostImportantTerms: jobImportantTerms,
       coverageRatio: Math.round(coverageRatio),
     },
+    semanticMatches: Array.from(semanticMatches).sort(),
+    scoreNotes,
   };
 }
 
@@ -582,7 +660,7 @@ function generateSuggestedBullets(
   jobPostText: string
 ): string[] {
   const bullets: string[] = [];
-  
+
   // Template bullets for matched skills
   if (matchedSkills.length > 0) {
     const topMatched = matchedSkills.slice(0, 3);
@@ -596,7 +674,7 @@ function generateSuggestedBullets(
       }
     }
   }
-  
+
   // Template bullets for missing skills
   if (missingSkills.length > 0) {
     const topMissing = missingSkills.slice(0, 3);
@@ -613,7 +691,7 @@ function generateSuggestedBullets(
   for (const responsibility of responsibilities.slice(0, 2)) {
     bullets.push(`If accurate, mirror this responsibility with your own evidence: ${responsibility}`);
   }
-  
+
   // Add generic strong bullets if we don't have enough
   if (bullets.length < 3) {
     bullets.push(
@@ -622,7 +700,7 @@ function generateSuggestedBullets(
       'If accurate, include a project example that directly maps to one of the role responsibilities.'
     );
   }
-  
+
   return bullets.slice(0, 5); // Limit to 5 bullets
 }
 

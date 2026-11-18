@@ -58,13 +58,22 @@ export function ExportActions({ result }: ExportActionsProps) {
 
   const shareResult = async () => {
     const text = buildPlainTextReport(result);
+
     if (navigator.share) {
-      await navigator.share({
-        title: 'ResumeRadar Match Report',
-        text,
-      });
-      showStatus('Share sheet opened');
-      return;
+      try {
+        await navigator.share({
+          title: 'ResumeRadar Match Report',
+          text,
+        });
+        showStatus('Share sheet opened');
+        return;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          showStatus('Share cancelled');
+          return;
+        }
+        // Anything else (no handler, permissions) falls back to copying.
+      }
     }
 
     try {
@@ -96,6 +105,16 @@ export function ExportActions({ result }: ExportActionsProps) {
               className='btn-press px-3 py-2 text-xs font-medium rounded-lg border border-[var(--border)] hover:border-[var(--muted)]'
             >
               Markdown
+            </button>
+            <button
+              type='button'
+              onClick={() => {
+                downloadTextFile(buildPlainTextReport(result), createResultFileName('txt'), 'text/plain');
+                showStatus('Text downloaded');
+              }}
+              className='btn-press px-3 py-2 text-xs font-medium rounded-lg border border-[var(--border)] hover:border-[var(--muted)]'
+            >
+              Text
             </button>
             <button
               type='button'

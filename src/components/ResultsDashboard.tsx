@@ -33,7 +33,12 @@ export function ResultsDashboard({ result }: ResultsDashboardProps) {
       {/* Score Breakdown */}
       <div className='card-bezel p-4 animate-fade-up' style={{ animationDelay: '150ms', animationFillMode: 'both' }}>
         <div className='card-bezel-inner p-6'>
-          <ScoreBreakdown items={result.scoreBreakdown} repetitionPenalty={result.repetitionPenalty} />
+          <ScoreBreakdown
+            items={result.scoreBreakdown}
+            repetitionPenalty={result.repetitionPenalty}
+            matchScore={result.matchScore}
+            notes={result.scoreNotes ?? []}
+          />
         </div>
       </div>
 
