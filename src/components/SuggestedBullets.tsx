@@ -37,7 +37,7 @@ export function SuggestedBullets({ bullets }: SuggestedBulletsProps) {
   return (
     <div>
       <div className='flex items-center justify-between mb-3'>
-        <h4 className='font-display text-sm font-semibold text-[var(--foreground)]'>Suggested resume bullets</h4>
+        <h4 className='font-display text-lg'>Suggested resume bullets</h4>
         <button
           type='button'
           onClick={copyAllBullets}
@@ -55,7 +55,7 @@ export function SuggestedBullets({ bullets }: SuggestedBulletsProps) {
           )}
         </button>
       </div>
-      <p className='text-xs text-[var(--muted)] mb-4'>
+      <p className='mt-1 mb-4 text-xs text-[var(--muted)]'>
         Use these as starting points. Edit them so they are accurate to your experience.
       </p>
       
@@ -63,7 +63,7 @@ export function SuggestedBullets({ bullets }: SuggestedBulletsProps) {
         {bullets.map((bullet, index) => (
           <div
             key={index}
-            className='group relative p-3 rounded-lg bg-[var(--surface)] border border-[var(--border)] hover:border-[var(--muted)]/30 transition-colors'
+            className='group relative rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3 transition-colors hover:border-[var(--border-strong)]'
           >
             <p className='text-sm text-[var(--foreground)] pr-8 leading-relaxed'>{bullet}</p>
             <button

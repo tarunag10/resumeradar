@@ -6,24 +6,35 @@ interface ResumeQualityChecksProps {
 
 export function ResumeQualityChecks({ checks }: ResumeQualityChecksProps) {
   const colorByStatus = {
-    pass: 'text-emerald-600 dark:text-emerald-400',
-    warning: 'text-amber-600 dark:text-amber-400',
-    info: 'text-blue-600 dark:text-blue-400',
+    pass: 'text-[var(--accent)]',
+    warning: 'text-[var(--warn)]',
+    info: 'text-[var(--muted)]',
+  };
+
+  const dotByStatus = {
+    pass: 'bg-[var(--accent)]',
+    warning: 'bg-[var(--warn)]',
+    info: 'bg-[var(--muted)]',
   };
 
   return (
     <div>
-      <h4 className='font-display text-sm font-semibold text-[var(--foreground)] mb-2'>Resume quality checks</h4>
-      <p className='text-xs text-[var(--muted)] mb-4'>Fast checks for clarity, evidence, and readability.</p>
-      <div className='space-y-3'>
+      <h4 className='font-display text-lg'>Quality checks</h4>
+      <p className='mt-1 mb-4 text-xs text-[var(--muted)]'>Fast checks for clarity, evidence, and readability.</p>
+      <div className='space-y-2.5'>
         {checks.map(check => (
-          <div key={check.id} className='p-3 rounded-lg bg-[var(--surface)] border border-[var(--border)]'>
+          <div key={check.id} className='rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3'>
             <div className='flex items-center justify-between gap-3'>
-              <p className='text-sm font-medium text-[var(--foreground)]'>{check.label}</p>
-              <span className={`text-xs font-medium capitalize ${colorByStatus[check.status]}`}>{check.status}</span>
+              <p className='flex items-center gap-2 text-sm font-medium text-[var(--foreground)]'>
+                <span className={`h-1.5 w-1.5 rounded-full ${dotByStatus[check.status]}`} aria-hidden='true' />
+                {check.label}
+              </p>
+              <span className={`font-mono text-[0.6875rem] uppercase tracking-wider ${colorByStatus[check.status]}`}>
+                {check.status}
+              </span>
             </div>
-            <p className='text-xs text-[var(--muted)] mt-1'>{check.detail}</p>
-            <p className='text-xs text-[var(--foreground)] mt-2'>{check.action}</p>
+            <p className='mt-1 text-xs text-[var(--muted)]'>{check.detail}</p>
+            <p className='mt-1.5 text-xs text-[var(--foreground)]'>{check.action}</p>
           </div>
         ))}
       </div>

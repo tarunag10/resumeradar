@@ -4,7 +4,7 @@ import { useState, useCallback, useRef } from 'react';
 import { extractTextFromFile, isPDF, isDOCX, getSupportedTypes } from '@/lib/documentExtractor';
 
 const { extensions } = getSupportedTypes();
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 interface FileUploadProps {
   label: string;
@@ -22,8 +22,7 @@ export function FileUpload({ label, hasExistingText = false, onTextExtracted, on
 
   const processFile = useCallback(async (file: File) => {
     if (!isPDF(file) && !isDOCX(file)) {
-      const errorMsg = `Unsupported file type. Please upload ${extensions.join(' or ')} files.`;
-      onError?.(errorMsg);
+      onError?.(`Unsupported file type. Please upload ${extensions.join(' or ')} files.`);
       return;
     }
 
@@ -86,7 +85,6 @@ export function FileUpload({ label, hasExistingText = false, onTextExtracted, on
       await processFile(files[0]);
     }
 
-    // Reset so choosing the same file again still fires a change event.
     input.value = '';
   }, [processFile]);
 
@@ -104,120 +102,92 @@ export function FileUpload({ label, hasExistingText = false, onTextExtracted, on
     setPendingExtraction(null);
   }, [onTextExtracted, pendingExtraction]);
 
-  const openFilePicker = useCallback(() => {
-    fileInputRef.current?.click();
-  }, []);
+  const inputId = `file-upload-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
 
   return (
     <div className='flex flex-col gap-2'>
-      <div className='flex items-center justify-between'>
-        <span className='text-sm font-medium text-gray-900 dark:text-gray-100'>
-          Or upload a file
-        </span>
-        <span className='text-xs text-gray-500 dark:text-gray-400'>
-          {extensions.join(', ')}
-        </span>
-      </div>
+      <input
+        ref={fileInputRef}
+        id={inputId}
+        type='file'
+        accept={extensions.join(',')}
+        onChange={handleFileSelect}
+        className='sr-only'
+      />
 
       <div
-        className={`
-          relative border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer
-          ${isDragging 
-            ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20' 
-            : 'border-gray-300 dark:border-gray-600 hover:border-indigo-400 dark:hover:border-indigo-500'
-          }
-          ${isExtracting ? 'pointer-events-none opacity-50' : ''}
-        `}
+        className={`rounded-xl border border-dashed px-4 py-3 transition-colors ${
+          isDragging ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-[var(--border-strong)]'
+        } ${isExtracting ? 'opacity-60' : ''}`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        onClick={openFilePicker}
-        role='button'
-        tabIndex={0}
-        onKeyDown={(e) => e.key === 'Enter' && openFilePicker()}
-        aria-label={`Upload ${label} file`}
       >
-        <input
-          ref={fileInputRef}
-          type='file'
-          accept={extensions.join(',')}
-          onChange={handleFileSelect}
-          className='hidden'
-          aria-hidden='true'
-        />
-
-        {isExtracting ? (
-          <div className='flex flex-col items-center gap-2'>
-            <div className='w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin' />
-            <span className='text-sm text-gray-600 dark:text-gray-400'>Extracting text...</span>
-          </div>
-        ) : extractedFileName ? (
-          <div className='flex flex-col items-center gap-2'>
-            <svg className='w-8 h-8 text-emerald-500' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-              <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' />
-            </svg>
-            <span className='text-sm text-gray-700 dark:text-gray-300'>{extractedFileName}</span>
-            {pendingExtraction && (
-              <>
-                <span className='text-xs text-gray-500 dark:text-gray-400'>
-                  Extracted {pendingExtraction.wordCount.toLocaleString()} words
-                </span>
-                <div className='flex flex-wrap justify-center gap-2'>
-                  <button
-                    type='button'
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      applyPendingExtraction('replace');
-                    }}
-                    className='px-3 py-1 text-xs font-medium bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 rounded-lg'
-                  >
-                    Replace text
-                  </button>
-                  <button
-                    type='button'
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      applyPendingExtraction('append');
-                    }}
-                    className='px-3 py-1 text-xs font-medium border border-gray-300 dark:border-gray-600 rounded-lg'
-                  >
-                    Append text
-                  </button>
-                </div>
-              </>
-            )}
-            <button
-              type='button'
-              onClick={(e) => {
-                e.stopPropagation();
-                handleClear();
-              }}
-              className='text-xs text-gray-500 hover:text-red-600 dark:hover:text-red-400 transition-colors'
-            >
-              Remove file
-            </button>
-          </div>
-        ) : (
-          <div className='flex flex-col items-center gap-2'>
-            <svg className='w-10 h-10 text-gray-400 dark:text-gray-500' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-              <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={1.5} d='M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12' />
-            </svg>
-            <div>
-              <span className='text-sm font-medium text-indigo-600 dark:text-indigo-400'>
-                Click to upload
+        <div className='flex items-center justify-between gap-3'>
+          <div className='min-w-0'>
+            {isExtracting ? (
+              <span className='flex items-center gap-2 text-xs text-[var(--muted)]'>
+                <span className='h-3.5 w-3.5 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent' />
+                Extracting text from {extractedFileName}
               </span>
-              <span className='text-sm text-gray-500 dark:text-gray-400'> or drag and drop</span>
-            </div>
-            <span className='text-xs text-gray-400 dark:text-gray-500'>
-              PDF or DOCX up to 10MB
-            </span>
+            ) : extractedFileName ? (
+              <span className='flex items-center gap-2 truncate text-xs text-[var(--foreground)]'>
+                <svg className='h-4 w-4 shrink-0 text-[var(--accent)]' fill='none' stroke='currentColor' viewBox='0 0 24 24' aria-hidden='true'>
+                  <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={1.6} d='M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' />
+                </svg>
+                <span className='truncate'>{extractedFileName}</span>
+                {pendingExtraction && (
+                  <span className='shrink-0 text-[var(--muted)]'>({pendingExtraction.wordCount.toLocaleString()} words)</span>
+                )}
+              </span>
+            ) : (
+              <span className='text-xs text-[var(--muted)]'>
+                <span className='text-[var(--foreground)]'>Drop a file</span> or use the picker. {extensions.join(', ')} up to 10MB.
+              </span>
+            )}
           </div>
-        )}
-      </div>
 
-      <p className='text-xs text-gray-500 dark:text-gray-400 text-center'>
-        Your file is processed locally. Nothing is uploaded.
-      </p>
+          <div className='flex shrink-0 items-center gap-1.5'>
+            {pendingExtraction ? (
+              <>
+                <button
+                  type='button'
+                  onClick={() => applyPendingExtraction('replace')}
+                  className='rounded-lg border border-[var(--border-strong)] px-2.5 py-1 text-xs font-medium hover:border-[var(--muted)]'
+                >
+                  Replace
+                </button>
+                <button
+                  type='button'
+                  onClick={() => applyPendingExtraction('append')}
+                  className='rounded-lg border border-[var(--border-strong)] px-2.5 py-1 text-xs font-medium hover:border-[var(--muted)]'
+                >
+                  Append
+                </button>
+              </>
+            ) : (
+              <label
+                htmlFor={inputId}
+                className='cursor-pointer rounded-lg border border-[var(--border-strong)] px-2.5 py-1 text-xs font-medium transition-colors hover:border-[var(--muted)]'
+              >
+                Choose file
+              </label>
+            )}
+            {extractedFileName && (
+              <button
+                type='button'
+                onClick={handleClear}
+                className='rounded-lg px-1.5 py-1 text-xs text-[var(--muted)] transition-colors hover:text-[var(--danger)]'
+                aria-label={`Remove uploaded ${label} file`}
+              >
+                <svg className='h-3.5 w-3.5' fill='none' stroke='currentColor' viewBox='0 0 24 24' aria-hidden='true'>
+                  <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M6 18L18 6M6 6l12 12' />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

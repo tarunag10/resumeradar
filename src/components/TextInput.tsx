@@ -12,6 +12,7 @@ interface TextInputProps {
   onClear: () => void;
   onFileExtracted?: () => void;
   minLength?: number;
+  inputRef?: React.RefObject<HTMLTextAreaElement | null>;
 }
 
 export function TextInput({
@@ -23,6 +24,7 @@ export function TextInput({
   onClear,
   onFileExtracted,
   minLength = 100,
+  inputRef,
 }: TextInputProps) {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const charCount = value.length;
@@ -30,7 +32,7 @@ export function TextInput({
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     onChange(e.target.value);
-    setUploadError(null); // Clear upload error when user manually types
+    setUploadError(null);
   }, [onChange]);
 
   const handleFileExtracted = useCallback((text: string, mode: 'replace' | 'append' = 'replace') => {
@@ -43,68 +45,76 @@ export function TextInput({
     setUploadError(error);
   }, []);
 
-  const isValid = value.length >= minLength;
+  const trimmedLength = value.trim().length;
+  const remaining = Math.max(0, minLength - trimmedLength);
+  const progress = Math.min(100, Math.round((trimmedLength / minLength) * 100));
 
   const inputId = `text-input-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`;
 
   return (
     <div className='flex flex-col gap-2'>
-      <div className='flex items-center justify-between'>
-        <label htmlFor={inputId} className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+      <div className='flex items-center justify-between gap-3'>
+        <label htmlFor={inputId} className='text-sm font-medium text-[var(--foreground)]'>
           {label}
         </label>
-        <span className='text-xs text-gray-500 dark:text-gray-400'>
-          {charCount.toLocaleString()} chars - {wordCount.toLocaleString()} words
+        <span className='font-mono text-[0.6875rem] tabular text-[var(--muted)]'>
+          {charCount.toLocaleString()} chars / {wordCount.toLocaleString()} words
         </span>
       </div>
-      
+
       <div className='relative'>
         <textarea
+          ref={inputRef}
           id={inputId}
           value={value}
           onChange={handleChange}
           placeholder={placeholder}
-          className='w-full h-64 px-4 py-3 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:border-transparent placeholder-gray-400 dark:placeholder-gray-500 transition-all'
+          className='h-56 w-full resize-none rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-3 text-sm leading-relaxed text-[var(--foreground)] placeholder:text-[var(--muted)]/70 focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/25 transition-colors'
           aria-describedby={`${inputId}-helper`}
         />
-        
+
         {value && (
           <button
             type='button'
             onClick={onClear}
-            className='absolute top-3 right-3 p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors'
+            className='absolute right-2.5 top-2.5 rounded-lg p-1.5 text-[var(--muted)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]'
             aria-label={`Clear ${label}`}
           >
-            <svg className='w-4 h-4' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
+            <svg className='h-4 w-4' fill='none' stroke='currentColor' viewBox='0 0 24 24' aria-hidden='true'>
               <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M6 18L18 6M6 6l12 12' />
             </svg>
           </button>
         )}
       </div>
 
-      <div className='flex items-center justify-between'>
-        <p id={`${inputId}-helper`} className='text-xs text-gray-500 dark:text-gray-400'>
+      <div className='h-1 w-full overflow-hidden rounded-full bg-[var(--track)]' aria-hidden='true'>
+        <div
+          className={`h-full rounded-full transition-[width] duration-500 ${remaining === 0 ? 'bg-[var(--accent)]' : 'bg-[var(--border-strong)]'}`}
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+
+      <div className='flex items-start justify-between gap-3'>
+        <p id={`${inputId}-helper`} className='text-xs text-[var(--muted)]'>
           {helperText}
         </p>
-        {!isValid && value.length > 0 && (
-          <p className='text-xs text-amber-600 dark:text-amber-400' role='status'>
-            Add more text for better analysis
+        {remaining > 0 && trimmedLength > 0 && (
+          <p className='shrink-0 text-xs tabular text-[var(--warn)]'>
+            {remaining.toLocaleString()} more chars for a useful match
           </p>
         )}
       </div>
 
-      {/* File Upload Section */}
-      <FileUpload 
+      <FileUpload
         label={label}
         hasExistingText={value.trim().length > 0}
         onTextExtracted={handleFileExtracted}
         onError={handleFileError}
       />
 
-      {/* Upload Error Message */}
       {uploadError && (
         <div
-          className='p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-xs text-red-700 dark:text-red-300'
+          className='rounded-lg border border-[var(--border)] bg-[var(--danger-soft)] px-3 py-2 text-xs text-[var(--danger)]'
           role='alert'
         >
           {uploadError}

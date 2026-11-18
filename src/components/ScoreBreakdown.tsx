@@ -14,39 +14,39 @@ export function ScoreBreakdown({ items, repetitionPenalty, matchScore, notes = [
 
   return (
     <div>
-      <h4 className='font-display text-sm font-semibold text-[var(--foreground)] mb-2'>Score breakdown</h4>
-      <p className='text-xs text-[var(--muted)] mb-4'>
-        How each measured signal contributed to the final match score. Weights add up to 100%.
+      <h4 className='font-display text-lg'>How the score was built</h4>
+      <p className='mt-1 mb-4 text-xs text-[var(--muted)]'>
+        Each measured signal, its weight, and the points it added. Weights add up to 100%.
       </p>
-      <div className='space-y-3'>
+      <div className='space-y-3.5'>
         {items.map(item => (
           <div key={item.label}>
-            <div className='flex items-center justify-between gap-3 text-sm mb-1'>
+            <div className='mb-1 flex items-baseline justify-between gap-3 text-sm'>
               <span className='font-medium text-[var(--foreground)]'>{item.label}</span>
-              <span className='text-[var(--muted)] text-right'>
-                {item.score}% · {item.weight}% weight
-                {typeof item.contribution === 'number' ? ` · +${item.contribution} pts` : ''}
+              <span className='font-mono text-[0.7rem] tabular text-[var(--muted)]'>
+                {item.score}% · w{item.weight}%
+                {typeof item.contribution === 'number' ? ` · +${item.contribution}` : ''}
               </span>
             </div>
-            <div className='h-2 rounded-full bg-[var(--border)] overflow-hidden'>
-              <div className='h-full rounded-full bg-[var(--foreground)]' style={{ width: `${Math.min(100, item.score)}%` }} />
+            <div className='h-1.5 overflow-hidden rounded-full bg-[var(--track)]'>
+              <div
+                className='animate-grow h-full rounded-full bg-[var(--accent)]'
+                style={{ width: `${Math.min(100, item.score)}%` }}
+              />
             </div>
-            <p className='text-xs text-[var(--muted)] mt-1'>{item.detail}</p>
           </div>
         ))}
       </div>
 
       {(items.length > 0 || repetitionPenalty > 0) && (
-        <div className='mt-4 pt-3 border-t border-[var(--border)] space-y-1'>
+        <div className='mt-4 space-y-1 border-t border-[var(--border)] pt-3'>
           <p className='text-xs text-[var(--foreground)]'>
             Signals total {contributionTotal.toFixed(1)} pts
-            {repetitionPenalty > 0 ? ` − ${repetitionPenalty} repetition penalty` : ''}
-            {typeof matchScore === 'number' ? ` → ${matchScore}% match` : ''}
+            {repetitionPenalty > 0 ? ` minus ${repetitionPenalty} repetition penalty` : ''}
+            {typeof matchScore === 'number' ? ` = ${matchScore}% match` : ''}
           </p>
           {repetitionPenalty > 0 && (
-            <p className='text-xs text-amber-600 dark:text-amber-400'>
-              Repetition penalty applied: -{repetitionPenalty} points.
-            </p>
+            <p className='text-xs text-[var(--warn)]'>Repetition penalty applied: -{repetitionPenalty} points.</p>
           )}
         </div>
       )}

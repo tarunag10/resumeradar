@@ -1,12 +1,12 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import Image from 'next/image';
 import { TextInput } from '@/components/TextInput';
 import { PrivacyBadge } from '@/components/PrivacyBadge';
 import { ResultsDashboard } from '@/components/ResultsDashboard';
 import { FAQ } from '@/components/FAQ';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { HeroDemo } from '@/components/HeroDemo';
 import { Toast, useToast } from '@/components/Toast';
 import { MatchHistory } from '@/components/MatchHistory';
 import { analyzeMatch } from '@/lib/scoring';
@@ -30,6 +30,29 @@ import { parseStoredResult } from '@/lib/resultSchema';
 // Analysis is synchronous on the main thread; a hard cap keeps a pasted document from
 // freezing the tab without telling the user why.
 const MAX_FIELD_LENGTH = 200_000;
+const MIN_FIELD_LENGTH = 100;
+
+const NAV_LINKS = [
+  { href: '#how-it-works', label: 'How it works' },
+  { href: '#tool', label: 'Matcher' },
+  { href: '#privacy', label: 'Privacy' },
+  { href: '#faq', label: 'FAQ' },
+];
+
+const STEPS = [
+  {
+    title: 'Paste both texts',
+    body: 'Your resume and the job post you are targeting. Files stay on your device too.',
+  },
+  {
+    title: 'Read the radar',
+    body: 'A weighted match score, the terms you already share, and the gaps worth closing.',
+  },
+  {
+    title: 'Tailor honestly',
+    body: 'Rewrite with the suggested bullets, then export the report for your own notes.',
+  },
+];
 
 interface AnalyzedInputs {
   resumeText: string;
@@ -41,7 +64,26 @@ function scrollToResults() {
   const target = document.getElementById('results');
   if (!target) return;
   const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-  target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth' });
+  target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+}
+
+function RadarMark() {
+  return (
+    <span
+      className='inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border-strong)] bg-[var(--surface)]'
+      aria-hidden='true'
+    >
+      <svg viewBox='0 0 32 32' className='h-6 w-6'>
+        <circle cx='16' cy='16' r='11' fill='none' stroke='var(--border-strong)' strokeWidth='0.9' />
+        <circle cx='16' cy='16' r='6' fill='none' stroke='var(--track)' strokeWidth='0.9' />
+        <g className='radar-sweep' style={{ transformOrigin: '16px 16px' }}>
+          <path d='M16 16 L16 5 A11 11 0 0 1 25.5 10.5 Z' fill='var(--accent)' opacity='0.22' />
+          <line x1='16' y1='16' x2='16' y2='5' stroke='var(--accent)' strokeWidth='1.1' />
+        </g>
+        <circle cx='21' cy='12' r='1.7' fill='var(--accent)' />
+      </svg>
+    </span>
+  );
 }
 
 export default function Home() {
@@ -55,7 +97,12 @@ export default function Home() {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [storageAvailable, setStorageAvailable] = useState(false);
   const [analyzedInputs, setAnalyzedInputs] = useState<AnalyzedInputs | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [toolInView, setToolInView] = useState(true);
   const storageWarningShown = useRef(false);
+  const resumeRef = useRef<HTMLTextAreaElement>(null);
+  const jobRef = useRef<HTMLTextAreaElement>(null);
+  const analyzeTimer = useRef<number | null>(null);
   const { toasts, addToast, removeToast } = useToast();
 
   useEffect(() => {
@@ -103,6 +150,24 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, [jobPostText, storageAvailable, addToast]);
 
+  useEffect(() => {
+    return () => {
+      if (analyzeTimer.current) window.clearTimeout(analyzeTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    const node = document.getElementById('tool');
+    if (!node || typeof IntersectionObserver === 'undefined') return;
+
+    const observer = new IntersectionObserver(
+      entries => setToolInView(entries[0]?.isIntersecting ?? true),
+      { rootMargin: '-15% 0px -45% 0px' }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
   const handleResumeChange = useCallback((value: string) => {
     setResumeText(value);
     setError(null);
@@ -127,25 +192,27 @@ export default function Home() {
     addToast(`${field} text extracted from file`, 'success');
   }, [addToast]);
 
+  const focusTool = useCallback((field: 'resume' | 'job' = 'resume') => {
+    const target = document.getElementById('tool');
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    target?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+    const textarea = field === 'resume' ? resumeRef.current : jobRef.current;
+    window.setTimeout(() => textarea?.focus({ preventScroll: true }), reduceMotion ? 0 : 420);
+  }, []);
+
   const handleAnalyze = useCallback(() => {
     if (resumeText.length > MAX_FIELD_LENGTH || jobPostText.length > MAX_FIELD_LENGTH) {
       setError(`Each field is limited to ${MAX_FIELD_LENGTH.toLocaleString()} characters. Trim the text and try again.`);
       return;
     }
-    if (!resumeText.trim()) {
-      setError('Paste more resume text for a useful comparison.');
+    if (resumeText.trim().length < MIN_FIELD_LENGTH) {
+      setError(`Add at least ${MIN_FIELD_LENGTH} characters of resume text so there is something to compare.`);
+      resumeRef.current?.focus();
       return;
     }
-    if (resumeText.trim().length < 100) {
-      setError('Paste more resume text for a useful comparison.');
-      return;
-    }
-    if (!jobPostText.trim()) {
-      setError('Paste more of the job post for a useful comparison.');
-      return;
-    }
-    if (jobPostText.trim().length < 100) {
-      setError('Paste more of the job post for a useful comparison.');
+    if (jobPostText.trim().length < MIN_FIELD_LENGTH) {
+      setError(`Add at least ${MIN_FIELD_LENGTH} characters of job post text so there is something to compare.`);
+      jobRef.current?.focus();
       return;
     }
     if (resumeText.trim() === jobPostText.trim()) {
@@ -154,40 +221,48 @@ export default function Home() {
     }
 
     setError(null);
+    setIsAnalyzing(true);
 
-    const analysisResult = analyzeMatch(resumeText, jobPostText, roleMode);
-    setResult(analysisResult);
-    setAnalyzedInputs({ resumeText, jobPostText, roleMode });
-    setShowRestoreNotice(false);
-    saveLastResult(analysisResult);
+    // A short, deliberate delay gives the scan state a moment to read as work happening.
+    analyzeTimer.current = window.setTimeout(() => {
+      const analysisResult = analyzeMatch(resumeText, jobPostText, roleMode);
+      setResult(analysisResult);
+      setAnalyzedInputs({ resumeText, jobPostText, roleMode });
+      setShowRestoreNotice(false);
+      saveLastResult(analysisResult);
 
-    if (!saveMatchToHistory(resumeText, jobPostText, analysisResult) && storageAvailable) {
-      addToast('Analysis ran, but it could not be added to history (local storage is full).', 'error');
-    }
+      if (!saveMatchToHistory(resumeText, jobPostText, analysisResult) && storageAvailable) {
+        addToast('Analysis ran, but it could not be added to history (local storage is full).', 'error');
+      }
 
-    setHistoryRefresh(value => value + 1);
-
-    setTimeout(scrollToResults, 100);
+      setHistoryRefresh(value => value + 1);
+      setIsAnalyzing(false);
+      scrollToResults();
+    }, 360);
   }, [resumeText, jobPostText, roleMode, addToast, storageAvailable]);
 
   const handleLoadSample = useCallback(() => {
+    if (resumeText.trim().length > 0 || jobPostText.trim().length > 0) {
+      addToast('Your own text is still in the form. Clear a field first to load the sample.', 'info');
+      focusTool('resume');
+      return;
+    }
+
     const { resume, jobPost } = loadSampleData();
     setResumeText(resume);
     setJobPostText(jobPost);
     setError(null);
-    setTimeout(() => {
-      const analysisResult = analyzeMatch(resume, jobPost, roleMode);
-      setResult(analysisResult);
-      setAnalyzedInputs({ resumeText: resume, jobPostText: jobPost, roleMode });
-      setShowRestoreNotice(false);
-      saveResumeText(resume);
-      saveJobPostText(jobPost);
-      saveLastResult(analysisResult);
-      saveMatchToHistory(resume, jobPost, analysisResult);
-      setHistoryRefresh(value => value + 1);
-      scrollToResults();
-    }, 100);
-  }, [roleMode]);
+    setRoleMode('general');
+
+    const analysisResult = analyzeMatch(resume, jobPost, 'general');
+    setResult(analysisResult);
+    setAnalyzedInputs({ resumeText: resume, jobPostText: jobPost, roleMode: 'general' });
+    setShowRestoreNotice(false);
+    saveResumeText(resume);
+    saveJobPostText(jobPost);
+    addToast('Sample match loaded. Nothing was added to your history.', 'info');
+    window.setTimeout(scrollToResults, 120);
+  }, [resumeText, jobPostText, addToast, focusTool]);
 
   const handleClearAll = useCallback(() => {
     clearAllData();
@@ -199,7 +274,7 @@ export default function Home() {
     setShowRestoreNotice(false);
     setHistoryRefresh(value => value + 1);
     setShowClearConfirm(true);
-    setTimeout(() => setShowClearConfirm(false), 3000);
+    window.setTimeout(() => setShowClearConfirm(false), 3000);
   }, []);
 
   const handleRestoreHistory = useCallback((entry: { resumeText: string; jobPostText: string; result: ScoringResult }) => {
@@ -221,15 +296,34 @@ export default function Home() {
     saveLastResult(restoredResult);
     setShowRestoreNotice(true);
     addToast('History match restored', 'success');
+    window.setTimeout(scrollToResults, 120);
   }, [addToast]);
 
-  const canAnalyze = resumeText.length >= 100 && jobPostText.length >= 100;
+  const canAnalyze = resumeText.trim().length >= MIN_FIELD_LENGTH && jobPostText.trim().length >= MIN_FIELD_LENGTH;
+  const resumeNeeded = Math.max(0, MIN_FIELD_LENGTH - resumeText.trim().length);
+  const jobNeeded = Math.max(0, MIN_FIELD_LENGTH - jobPostText.trim().length);
+
+  const analyzeHint = resumeNeeded > 0 && jobNeeded > 0
+    ? `${resumeNeeded} more characters of resume and ${jobNeeded} of job post needed.`
+    : resumeNeeded > 0
+      ? `${resumeNeeded} more characters of resume needed.`
+      : jobNeeded > 0
+        ? `${jobNeeded} more characters of job post needed.`
+        : 'Ready. Ctrl or Cmd + Enter also runs the match.';
+
   const isStale = Boolean(
     result &&
     analyzedInputs &&
     (resumeText !== analyzedInputs.resumeText ||
       jobPostText !== analyzedInputs.jobPostText ||
       roleMode !== analyzedInputs.roleMode)
+  );
+
+  const reportInputs = analyzedInputs ?? { resumeText, jobPostText, roleMode };
+  const showMobileBar = !toolInView && (resumeText.length > 0 || jobPostText.length > 0) && (!result || isStale);
+  const progress = Math.min(
+    100,
+    Math.round(((Math.min(resumeText.trim().length, MIN_FIELD_LENGTH) + Math.min(jobPostText.trim().length, MIN_FIELD_LENGTH)) / (MIN_FIELD_LENGTH * 2)) * 100)
   );
 
   // Keyboard shortcut (Cmd/Ctrl + Enter to analyze)
@@ -242,481 +336,420 @@ export default function Home() {
         }
       }
     };
-    
+
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [canAnalyze, handleAnalyze]);
 
   return (
-    <div className='min-h-[100dvh] flex flex-col relative'>
-      {/* Noise texture overlay */}
-      <div className='noise' />
-      
-      {/* Header - Floating glass pill nav */}
-      <header className='sticky top-0 z-50 px-4 pt-6 pb-4'>
-        <nav className='max-w-5xl mx-auto'>
-          <div className='card-bezel'>
-            <div className='card-bezel-inner px-5 py-3 flex items-center justify-between'>
-              <div className='flex items-center gap-3'>
-                <div className='w-9 h-9 rounded-xl flex items-center justify-center overflow-hidden bg-white border border-[var(--border)] shadow-sm'>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src='/assets/resumeradar-logo.png'
-                    alt=''
-                    width={30}
-                    height={30}
-                    className='w-7 h-7 object-contain'
-                  />
-                </div>
-                <span className='font-display font-semibold text-[var(--foreground)] tracking-tight'>ResumeRadar</span>
-              </div>
-              
-              <div className='hidden md:flex items-center gap-8'>
-                <a href='#how-it-works' className='text-sm text-[var(--muted)] hover:text-[var(--foreground)] transition-colors'>How it works</a>
-                <a href='#features' className='text-sm text-[var(--muted)] hover:text-[var(--foreground)] transition-colors'>Features</a>
-                <a href='#privacy' className='text-sm text-[var(--muted)] hover:text-[var(--foreground)] transition-colors'>Privacy</a>
-                <a href='#faq' className='text-sm text-[var(--muted)] hover:text-[var(--foreground)] transition-colors'>FAQ</a>
-              </div>
-              
-              <div className='flex items-center gap-2'>
-                <ThemeToggle />
-                <MatchHistory onSelectEntry={handleRestoreHistory} refreshSignal={historyRefresh} />
-                <button
-                  type='button'
-                  onClick={handleClearAll}
-                  className='hidden sm:inline-flex text-xs text-[var(--muted)] hover:text-red-500 transition-colors px-3 py-1.5 rounded-lg hover:bg-[var(--border)]'
-                  aria-label='Clear local data'
-                >
-                  Clear data
-                </button>
-              </div>
-            </div>
+    <div className={`relative flex min-h-[100dvh] flex-col ${showMobileBar ? 'pb-24 md:pb-0' : ''}`}>
+      <a
+        href='#tool'
+        className='sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[70] focus:rounded-full focus:bg-[var(--foreground)] focus:px-4 focus:py-2 focus:text-sm focus:text-[var(--background)]'
+      >
+        Skip to the matcher
+      </a>
+
+      {/* Header */}
+      <header className='sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--blur-bg)] backdrop-blur'>
+        <div className='mx-auto flex max-w-6xl items-center gap-2 px-4 py-3'>
+          <a href='#top' className='flex items-center gap-2.5'>
+            <RadarMark />
+            <span className='font-display text-xl tracking-tight'>ResumeRadar</span>
+          </a>
+
+          <nav aria-label='Sections' className='ml-6 hidden items-center gap-0.5 md:flex'>
+            {NAV_LINKS.map(link => (
+              <a
+                key={link.href}
+                href={link.href}
+                className='rounded-full px-3 py-1.5 text-sm text-[var(--muted)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]'
+              >
+                {link.label}
+              </a>
+            ))}
+          </nav>
+
+          <div className='ml-auto flex items-center gap-1.5'>
+            <ThemeToggle />
+            <MatchHistory onSelectEntry={handleRestoreHistory} refreshSignal={historyRefresh} />
+            <button
+              type='button'
+              onClick={handleClearAll}
+              className='btn-quiet hidden text-xs sm:inline-flex'
+              aria-label='Clear local data'
+            >
+              Clear data
+            </button>
           </div>
+        </div>
+
+        <nav aria-label='Sections, compact' className='mx-auto flex max-w-6xl gap-1 overflow-x-auto px-3 pb-2 md:hidden'>
+          {NAV_LINKS.map(link => (
+            <a
+              key={link.href}
+              href={link.href}
+              className='shrink-0 rounded-full px-3 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]'
+            >
+              {link.label}
+            </a>
+          ))}
         </nav>
       </header>
 
       <main className='flex-1'>
-        {/* Hero Section - Asymmetric layout */}
-        <section className='relative px-4 pt-12 pb-20 md:pt-20 md:pb-28 overflow-hidden'>
-          <div className='absolute inset-x-0 top-0 h-[520px] pointer-events-none hero-atmosphere' />
-          <div className='max-w-6xl mx-auto relative'>
-            <div className='grid lg:grid-cols-12 gap-10 lg:gap-12 items-center'>
-              {/* Left content - asymmetric */}
-              <div className='lg:col-span-5 space-y-8'>
-                {/* Eyebrow */}
-                <div className='inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)]'>
-                  <span className='w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse' />
-                  <span className='text-xs text-[var(--muted)] uppercase tracking-wider'>100% Private & Local</span>
-                </div>
-                
-                {/* Headline - dramatic typography */}
-                <h1 className='font-display text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight leading-[1.05] text-[var(--foreground)]'>
-                  Match your resume to any job post
-                  <span className='block mt-2 text-[var(--muted)]'>in seconds.</span>
-                </h1>
-                
-                {/* Subheadline */}
-                <p className='text-lg text-[var(--muted)] max-w-[50ch] leading-relaxed'>
-                  Paste your resume and a job description to find keyword overlap, missing skills, and stronger bullet ideas. No upload, no login.
-                </p>
-                
-                {/* CTA */}
-                <div className='flex flex-wrap items-center gap-4'>
-                  <button
-                    type='button'
-                    onClick={handleLoadSample}
-                    className='group btn-press inline-flex items-center gap-2 px-6 py-3 bg-[var(--foreground)] text-[var(--background)] rounded-full text-sm font-medium hover:opacity-90 transition-opacity'
-                  >
-                    <span>Try sample match</span>
-                    <svg className='w-4 h-4 group-hover:translate-x-0.5 transition-transform' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-                      <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={1.5} d='M17 8l4 4m0 0l-4 4m4-4H3' />
-                    </svg>
-                  </button>
-                  <PrivacyBadge />
-                </div>
+        {/* Hero */}
+        <section id='top' className='px-4 pb-14 pt-10 md:pb-20 md:pt-16'>
+          <div className='mx-auto grid max-w-6xl items-center gap-10 lg:grid-cols-12 lg:gap-12'>
+            <div className='lg:col-span-5'>
+              <p className='mono-label'>Local match report</p>
+              <h1 className='font-display mt-4 text-[2.6rem] leading-[1.02] sm:text-5xl lg:text-[3.4rem]'>
+                Match your resume to <em className='italic text-[var(--accent)]'>any job post</em> in seconds.
+              </h1>
+              <p className='mt-5 max-w-[46ch] text-base leading-relaxed text-[var(--muted)] md:text-lg'>
+                Paste both texts and get one clear read: the score, the language you already share, the gaps worth closing, and bullets that sound like you.
+              </p>
+
+              <div className='mt-7 flex flex-col gap-2.5 sm:flex-row sm:items-center'>
+                <button type='button' onClick={() => focusTool('resume')} className='btn btn-primary'>
+                  Match my resume
+                  <svg className='h-4 w-4' fill='none' stroke='currentColor' viewBox='0 0 24 24' aria-hidden='true'>
+                    <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={1.6} d='M17 8l4 4m0 0l-4 4m4-4H3' />
+                  </svg>
+                </button>
+                <button type='button' onClick={handleLoadSample} className='btn btn-ghost'>
+                  Try a sample
+                </button>
               </div>
-              
-              {/* Right side - generated product visual */}
-              <div className='lg:col-span-7 animate-fade-up' style={{ animationDelay: '120ms', animationFillMode: 'both' }}>
-                <div className='hero-visual-shell'>
-                  <Image
-                    src='/assets/resumeradar-hero.png'
-                    alt='Abstract resume and job post panels being matched locally with radar scanning arcs'
-                    width={1568}
-                    height={1003}
-                    className='hero-visual-image'
-                    priority
-                  />
-                  <div className='hero-visual-fade' />
-                  <div className='hero-stat hero-stat-upload'>
-                    <span className='hero-stat-value'>0</span>
-                    <span className='hero-stat-label'>Data uploaded</span>
-                  </div>
-                  <div className='hero-stat hero-stat-browser'>
-                    <span className='hero-stat-value'>100%</span>
-                    <span className='hero-stat-label'>Browser processing</span>
-                  </div>
-                  <div className='hero-chip-row' aria-hidden='true'>
-                    <span>keyword overlap</span>
-                    <span>missing skills</span>
-                    <span>stronger bullets</span>
-                  </div>
-                </div>
-              </div>
+
+              <PrivacyBadge className='mt-5' />
+            </div>
+
+            <div className='lg:col-span-7'>
+              <HeroDemo onTrySample={handleLoadSample} />
             </div>
           </div>
         </section>
 
         {/* Restore Notice */}
         {showRestoreNotice && (
-          <div className='mx-4 mb-6 max-w-5xl mx-auto' role='status'>
-            <div className='px-4 py-3 rounded-xl border border-amber-200 dark:border-amber-800/50 bg-amber-50/50 dark:bg-amber-900/20 flex items-center gap-3'>
-              <svg className='w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-                <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={1.5} d='M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' />
-              </svg>
-              <span className='text-sm text-amber-800 dark:text-amber-200'>Last comparison restored from this browser</span>
+          <div className='mx-auto mb-4 max-w-5xl px-4' role='status'>
+            <div className='flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--warn-soft)] px-4 py-2.5'>
+              <span className='h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--warn)]' aria-hidden='true' />
+              <span className='text-xs text-[var(--warn)]'>Last comparison restored from this browser</span>
               <button
                 type='button'
                 onClick={() => setShowRestoreNotice(false)}
-                className='ml-auto p-1 rounded-md text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors'
+                className='ml-auto rounded-md p-1 text-[var(--warn)] opacity-70 transition-opacity hover:opacity-100'
                 aria-label='Dismiss restore notice'
               >
-                <svg className='w-4 h-4' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-                  <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={1.5} d='M6 18L18 6M6 6l12 12' />
+                <svg className='h-3.5 w-3.5' fill='none' stroke='currentColor' viewBox='0 0 24 24' aria-hidden='true'>
+                  <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M6 18L18 6M6 6l12 12' />
                 </svg>
               </button>
             </div>
           </div>
         )}
 
-        {/* Clear Confirm Toast */}
-        {showClearConfirm && (
-          <div
-            className='fixed bottom-6 right-6 px-4 py-3 bg-[var(--foreground)] text-[var(--background)] rounded-xl shadow-lg text-sm flex items-center gap-2 z-50 btn-press'
-            role='status'
-          >
-            <svg className='w-4 h-4 text-emerald-400' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-              <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={1.5} d='M5 13l4 4L19 7' />
-            </svg>
-            Local data cleared.
-          </div>
-        )}
+        {/* Toasts */}
+        <div
+          className={`pointer-events-none fixed inset-x-0 z-[60] flex flex-col items-center gap-2 px-4 md:inset-x-auto md:right-6 md:items-end ${showMobileBar ? 'bottom-24 md:bottom-6' : 'bottom-4 md:bottom-6'}`}
+          aria-live='polite'
+        >
+          {toasts.map(toast => (
+            <Toast
+              key={toast.id}
+              message={toast.message}
+              type={toast.type}
+              onClose={() => removeToast(toast.id)}
+            />
+          ))}
+          {showClearConfirm && (
+            <div className='pointer-events-auto flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--foreground)] px-3.5 py-2.5 text-xs font-medium text-[var(--background)] shadow-[var(--shadow-md)]'>
+              <span className='h-1.5 w-1.5 rounded-full bg-[var(--accent)]' aria-hidden='true' />
+              Local data cleared.
+            </div>
+          )}
+        </div>
 
-        {/* Toast Notifications */}
-        {toasts.map(toast => (
-          <Toast
-            key={toast.id}
-            message={toast.message}
-            type={toast.type}
-            onClose={() => removeToast(toast.id)}
-          />
-        ))}
-
-        {/* Input Panel - Bento grid layout */}
-        <section id='features' className='px-4 py-16 md:py-24 scroll-mt-24'>
-          <div className='max-w-5xl mx-auto'>
-            <div className='grid md:grid-cols-2 gap-6'>
-              <div className='card-bezel animate-fade-up' style={{ animationDelay: '100ms', animationFillMode: 'both' }}>
-                <div className='card-bezel-inner p-6'>
-                  <TextInput
-                    label='Your resume'
-                    placeholder={`Paste your resume text here. Include experience, skills, projects, and certifications for better results.\n\nExample:\nJohn Smith\nSenior Software Engineer\n\nExperience:\n- Led development of microservices architecture\n- Mentored junior developers\n- Improved code review process\n\nSkills:\nJavaScript, Python, AWS, Docker...`}
-                    helperText='Paste your resume text. It stays in this browser.'
-                    value={resumeText}
-                    onChange={handleResumeChange}
-                    onClear={handleClearResume}
-                    onFileExtracted={() => handleFileExtracted('Resume')}
-                  />
-                </div>
+        {/* Tool */}
+        <section id='tool' className='scroll-mt-28 border-t border-[var(--border)] bg-[var(--surface-2)]/60 px-4 py-12 md:scroll-mt-24 md:py-16'>
+          <div className='mx-auto max-w-5xl'>
+            <div className='mb-6 flex flex-wrap items-end justify-between gap-3'>
+              <div>
+                <p className='mono-label'>The matcher</p>
+                <h2 className='font-display mt-2 text-3xl md:text-4xl'>Two texts in, one clear read.</h2>
               </div>
-              
-              <div className='card-bezel animate-fade-up' style={{ animationDelay: '200ms', animationFillMode: 'both' }}>
-                <div className='card-bezel-inner p-6'>
-                  <TextInput
-                    label='Job post'
-                    placeholder={`Paste the job description, responsibilities, and requirements.\n\nExample:\nSenior Software Engineer\n\nWe need:\n- 5+ years experience with JavaScript\n- Experience with AWS and microservices\n- Strong problem-solving skills\n- Experience leading teams...`}
-                    helperText='Paste the role description, responsibilities, and requirements.'
-                    value={jobPostText}
-                    onChange={handleJobPostChange}
-                    onClear={handleClearJobPost}
-                    onFileExtracted={() => handleFileExtracted('Job post')}
-                  />
-                </div>
+              <button type='button' onClick={handleLoadSample} className='btn-quiet text-xs'>
+                Load the sample instead
+              </button>
+            </div>
+
+            <div className='grid gap-4 md:grid-cols-2'>
+              <div className='card p-5'>
+                <TextInput
+                  label='Your resume'
+                  placeholder={`Paste your resume text: experience, skills, projects, certifications.\n\nExample:\nJohn Smith - Senior Software Engineer\n- Led migration of the billing service to AWS\n- Mentored three engineers, cut review time 30%\n- Skills: TypeScript, Python, PostgreSQL, Docker`}
+                  helperText='Paste text, or drop a PDF or DOCX.'
+                  value={resumeText}
+                  onChange={handleResumeChange}
+                  onClear={handleClearResume}
+                  onFileExtracted={() => handleFileExtracted('Resume')}
+                  inputRef={resumeRef}
+                />
+              </div>
+
+              <div className='card p-5'>
+                <TextInput
+                  label='Job post'
+                  placeholder={`Paste the job description: responsibilities, requirements, nice-to-haves.\n\nExample:\nSenior Software Engineer\n- 5+ years with TypeScript and Node\n- Experience running services on AWS\n- Strong collaboration with product teams`}
+                  helperText='Paste the role you are targeting.'
+                  value={jobPostText}
+                  onChange={handleJobPostChange}
+                  onClear={handleClearJobPost}
+                  onFileExtracted={() => handleFileExtracted('Job post')}
+                  inputRef={jobRef}
+                />
               </div>
             </div>
 
-            {/* Error Message */}
             {error && (
-              <div className='mt-6 p-4 rounded-xl border border-red-200/50 dark:border-red-800/50 bg-red-50/50 dark:bg-red-900/20 flex items-center gap-3 animate-fade-up' role='alert'>
-                <svg className='w-4 h-4 text-red-600 dark:text-red-400 flex-shrink-0' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-                  <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={1.5} d='M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' />
-                </svg>
-                <span className='text-sm text-red-700 dark:text-red-300'>{error}</span>
+              <div
+                className='mt-4 flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--danger-soft)] px-4 py-3'
+                role='alert'
+              >
+                <span className='h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--danger)]' aria-hidden='true' />
+                <span className='text-sm text-[var(--danger)]'>{error}</span>
               </div>
             )}
 
-            {/* Analyze Button - Centered with keyboard hint */}
-            <div className='flex flex-col items-center gap-4 mt-8 animate-fade-up' style={{ animationDelay: '300ms', animationFillMode: 'both' }}>
-              <div className='w-full max-w-3xl'>
-                <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
-                  <label htmlFor='role-mode' className='text-sm font-medium text-[var(--foreground)]'>
-                    Role mode
-                  </label>
-                  <select
-                    id='role-mode'
-                    value={roleMode}
-                    onChange={(event) => setRoleMode(event.target.value as RoleMode)}
-                    className='w-full sm:w-64 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--foreground)]'
-                  >
-                    <option value='general'>General</option>
-                    <option value='software'>Software</option>
-                    <option value='data'>Data</option>
-                    <option value='product'>Product</option>
-                    <option value='marketing'>Marketing</option>
-                    <option value='legal'>Legal / Compliance</option>
-                    <option value='finance'>Finance</option>
-                  </select>
-                </div>
-                <p className='mt-2 text-xs text-[var(--muted)] text-center sm:text-right'>
-                  Adjusts scoring weight and role-focused skill signals.
+            <div className='mt-5 flex flex-col gap-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5'>
+              <div className='flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3'>
+                <label htmlFor='role-mode' className='mono-label'>
+                  Role mode
+                </label>
+                <select
+                  id='role-mode'
+                  value={roleMode}
+                  onChange={event => setRoleMode(event.target.value as RoleMode)}
+                  className='w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/25 sm:w-56'
+                >
+                  <option value='general'>General</option>
+                  <option value='software'>Software</option>
+                  <option value='data'>Data</option>
+                  <option value='product'>Product</option>
+                  <option value='marketing'>Marketing</option>
+                  <option value='legal'>Legal / Compliance</option>
+                  <option value='finance'>Finance</option>
+                </select>
+              </div>
+
+              <div className='flex flex-col items-stretch gap-1.5 sm:items-end'>
+                <button
+                  type='button'
+                  onClick={handleAnalyze}
+                  disabled={!canAnalyze || isAnalyzing}
+                  aria-describedby='analyze-hint'
+                  className='btn btn-primary w-full sm:w-auto'
+                >
+                  {isAnalyzing ? (
+                    <>
+                      <span className='h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent' />
+                      Scanning
+                    </>
+                  ) : (
+                    <>
+                      Analyze match
+                      <svg className='h-4 w-4' fill='none' stroke='currentColor' viewBox='0 0 24 24' aria-hidden='true'>
+                        <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={1.6} d='M17 8l4 4m0 0l-4 4m4-4H3' />
+                      </svg>
+                    </>
+                  )}
+                </button>
+                <p id='analyze-hint' className='text-center text-[0.7rem] text-[var(--muted)] sm:text-right'>
+                  {analyzeHint}
                 </p>
               </div>
-              <button
-                type='button'
-                onClick={handleAnalyze}
-                disabled={!canAnalyze}
-                className={`btn-press group inline-flex items-center gap-3 px-8 py-4 text-base font-medium rounded-full transition-all ${
-                  canAnalyze
-                    ? 'bg-[var(--foreground)] text-[var(--background)] hover:opacity-90'
-                    : 'bg-[var(--border)] text-[var(--muted)] cursor-not-allowed'
-                }`}
-              >
-                <span>Analyze match</span>
-                <svg className='w-4 h-4 group-hover:translate-x-0.5 transition-transform' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-                  <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={1.5} d='M17 8l4 4m0 0l-4 4m4-4H3' />
-                </svg>
-              </button>
-              {canAnalyze && (
-                <span className='text-xs text-[var(--muted)]'>
-                  or press <kbd className='font-mono px-1.5 py-0.5 rounded border border-[var(--border)] bg-[var(--surface)]'>Ctrl/⌘</kbd> + <kbd className='font-mono px-1.5 py-0.5 rounded border border-[var(--border)] bg-[var(--surface)]'>Enter</kbd>
-                </span>
-              )}
             </div>
 
-            {/* Storage Notice */}
             {!storageAvailable && (
-              <p className='mt-6 text-center text-sm text-amber-600 dark:text-amber-400'>
+              <p className='mt-3 text-center text-xs text-[var(--warn)]'>
                 Local saving is unavailable in this browser, but analysis still works.
               </p>
             )}
           </div>
         </section>
 
-        {/* Results Section - Bento grid dashboard */}
+        {/* Results */}
         {result && (
-          <section id='results' className='px-4 py-16 md:py-24 bg-[var(--surface)]/50' aria-live='polite'>
-            <div className='max-w-5xl mx-auto'>
-              <div className='text-center mb-12 animate-fade-up'>
-                <span className='inline-block text-xs text-[var(--muted)] uppercase tracking-wider mb-3'>Your Results</span>
-                <h2 className='font-display text-3xl md:text-4xl font-bold tracking-tight text-[var(--foreground)]'>
-                  Match Analysis
-                </h2>
-                <p className='text-[var(--muted)] mt-2'>Based on your resume and job post comparison</p>
+          <section id='results' className='scroll-mt-24 px-4 py-12 md:py-16'>
+            <div className='mx-auto max-w-5xl'>
+              <div className='mb-5 flex flex-wrap items-end justify-between gap-3'>
+                <div>
+                  <p className='mono-label'>Your report</p>
+                  <h2 className='font-display mt-2 text-3xl md:text-4xl'>Match analysis</h2>
+                </div>
+                <p className='text-xs text-[var(--muted)]'>
+                  {reportInputs.resumeText.trim().split(/\s+/).filter(Boolean).length.toLocaleString()} resume words vs{' '}
+                  {reportInputs.jobPostText.trim().split(/\s+/).filter(Boolean).length.toLocaleString()} job-post words
+                </p>
               </div>
+
               {isStale && (
                 <div
-                  className='mb-6 flex flex-col gap-3 rounded-xl border border-amber-200 dark:border-amber-800/50 bg-amber-50/50 dark:bg-amber-900/20 px-4 py-3 sm:flex-row sm:items-center'
+                  className='mb-4 flex flex-col gap-3 rounded-xl border border-[var(--border)] bg-[var(--warn-soft)] px-4 py-3 sm:flex-row sm:items-center'
                   role='status'
                 >
-                  <span className='text-sm text-amber-800 dark:text-amber-200'>
+                  <span className='text-sm text-[var(--warn)]'>
                     Your inputs changed since this analysis, so the score below is out of date.
                   </span>
                   <button
                     type='button'
                     onClick={handleAnalyze}
                     disabled={!canAnalyze}
-                    className='btn-press sm:ml-auto shrink-0 rounded-lg bg-[var(--foreground)] px-3 py-1.5 text-xs font-medium text-[var(--background)] disabled:opacity-50'
+                    className='btn btn-ghost shrink-0 px-3 py-1.5 text-xs text-[var(--warn)] sm:ml-auto'
                   >
                     Re-analyze
                   </button>
                 </div>
               )}
-              <ResultsDashboard result={result} />
+
+              <ResultsDashboard
+                result={result}
+                resumeText={reportInputs.resumeText}
+                jobPostText={reportInputs.jobPostText}
+              />
             </div>
           </section>
         )}
 
-        {/* How It Works Section */}
-        <section id='how-it-works' className='px-4 py-24 md:py-32 scroll-mt-24'>
-          <div className='max-w-5xl mx-auto'>
-            <div className='text-center mb-16 animate-fade-up'>
-              <span className='inline-block text-xs text-[var(--muted)] uppercase tracking-wider mb-3'>Simple Process</span>
-              <h2 className='font-display text-3xl md:text-4xl font-bold tracking-tight text-[var(--foreground)]'>
-                How it works
-              </h2>
+        {/* How it works */}
+        <section id='how-it-works' className='scroll-mt-24 border-t border-[var(--border)] px-4 py-16 md:py-24'>
+          <div className='mx-auto max-w-5xl'>
+            <div className='max-w-2xl'>
+              <p className='mono-label'>How it works</p>
+              <h2 className='font-display mt-2 text-3xl md:text-4xl'>No upload. No account. No waiting.</h2>
             </div>
-            
-            <div className='grid md:grid-cols-3 gap-6'>
-              <div className='card-bezel p-5 animate-fade-up' style={{ animationDelay: '100ms', animationFillMode: 'both' }}>
-                <div className='card-bezel-inner p-6'>
-                  <span className='inline-flex items-center justify-center w-10 h-10 rounded-full bg-[var(--foreground)] text-[var(--background)] font-display font-bold text-sm mb-4'>1</span>
-                  <h3 className='font-display font-semibold text-[var(--foreground)] mb-2'>Paste your text</h3>
-                  <p className='text-sm text-[var(--muted)] leading-relaxed'>Add your resume and the job description you are targeting.</p>
+
+            <div className='mt-8 grid gap-px overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--border)] md:grid-cols-3'>
+              {STEPS.map((step, index) => (
+                <div key={step.title} className='bg-[var(--surface)] p-6'>
+                  <span className='font-mono text-xs tabular text-[var(--accent)]'>0{index + 1}</span>
+                  <h3 className='font-display mt-3 text-xl'>{step.title}</h3>
+                  <p className='mt-2 text-sm leading-relaxed text-[var(--muted)]'>{step.body}</p>
                 </div>
-              </div>
-              
-              <div className='card-bezel p-5 animate-fade-up' style={{ animationDelay: '200ms', animationFillMode: 'both' }}>
-                <div className='card-bezel-inner p-6'>
-                  <span className='inline-flex items-center justify-center w-10 h-10 rounded-full bg-[var(--foreground)] text-[var(--background)] font-display font-bold text-sm mb-4'>2</span>
-                  <h3 className='font-display font-semibold text-[var(--foreground)] mb-2'>Analyze locally</h3>
-                  <p className='text-sm text-[var(--muted)] leading-relaxed'>Click analyze and watch the algorithm compare your text instantly.</p>
-                </div>
-              </div>
-              
-              <div className='card-bezel p-5 animate-fade-up' style={{ animationDelay: '300ms', animationFillMode: 'both' }}>
-                <div className='card-bezel-inner p-6'>
-                  <span className='inline-flex items-center justify-center w-10 h-10 rounded-full bg-[var(--foreground)] text-[var(--background)] font-display font-bold text-sm mb-4'>3</span>
-                  <h3 className='font-display font-semibold text-[var(--foreground)] mb-2'>Improve and apply</h3>
-                  <p className='text-sm text-[var(--muted)] leading-relaxed'>Review suggestions and copy bullets that help you tailor your resume.</p>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
         </section>
 
-        {/* Privacy Section */}
-        <section id='privacy' className='px-4 py-24 md:py-32 bg-[var(--surface)]/50 scroll-mt-24'>
-          <div className='max-w-5xl mx-auto'>
-            <div className='text-center mb-12 animate-fade-up'>
-              <span className='inline-block text-xs text-[var(--muted)] uppercase tracking-wider mb-3'>Your Data</span>
-              <h2 className='font-display text-3xl md:text-4xl font-bold tracking-tight text-[var(--foreground)]'>
-                Private by design
-              </h2>
+        {/* Privacy */}
+        <section id='privacy' className='scroll-mt-24 border-t border-[var(--border)] bg-[var(--surface-2)]/60 px-4 py-14 md:py-20'>
+          <div className='mx-auto flex max-w-5xl flex-col gap-6 md:flex-row md:items-start md:justify-between'>
+            <div className='max-w-xl'>
+              <p className='mono-label'>Privacy</p>
+              <h2 className='font-display mt-2 text-3xl md:text-4xl'>Your text stays on this device.</h2>
+              <p className='mt-3 text-sm leading-relaxed text-[var(--muted)]'>
+                The analysis runs in your browser. Nothing is sent anywhere, and localStorage is the only place your text is kept - clear it whenever you like.
+              </p>
             </div>
-            
-            <div className='card-bezel p-5 animate-fade-up' style={{ animationDelay: '100ms', animationFillMode: 'both' }}>
-              <div className='card-bezel-inner p-8'>
-                <div className='flex flex-col md:flex-row items-start gap-8'>
-                  <div className='flex-shrink-0'>
-                    <div className='w-14 h-14 rounded-2xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center'>
-                      <svg className='w-7 h-7 text-emerald-600 dark:text-emerald-400' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-                        <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={1.5} d='M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' />
-                      </svg>
-                    </div>
-                  </div>
-                  
-                  <div className='flex-1 space-y-4'>
-                    <div>
-                      <h3 className='font-display font-semibold text-[var(--foreground)] text-lg mb-2'>Your text never leaves this browser</h3>
-                      <p className='text-[var(--muted)] leading-relaxed'>
-                        This tool runs in your browser. Your resume and job post are not uploaded to a server. If you choose to keep working later, the text is saved only in this browser using localStorage.
-                      </p>
-                    </div>
-                    
-                    <div className='grid sm:grid-cols-3 gap-4 pt-4 border-t border-[var(--border)]'>
-                      <div className='flex items-center gap-2'>
-                        <svg className='w-4 h-4 text-emerald-500' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-                          <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={1.5} d='M5 13l4 4L19 7' />
-                        </svg>
-                        <span className='text-sm text-[var(--foreground)]'>100% client-side</span>
-                      </div>
-                      <div className='flex items-center gap-2'>
-                        <svg className='w-4 h-4 text-emerald-500' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-                          <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={1.5} d='M5 13l4 4L19 7' />
-                        </svg>
-                        <span className='text-sm text-[var(--foreground)]'>No external APIs</span>
-                      </div>
-                      <div className='flex items-center gap-2'>
-                        <svg className='w-4 h-4 text-emerald-500' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-                          <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={1.5} d='M5 13l4 4L19 7' />
-                        </svg>
-                        <span className='text-sm text-[var(--foreground)]'>Clear anytime</span>
-                      </div>
-                    </div>
-                  </div>
+
+            <dl className='grid shrink-0 gap-2.5 font-mono text-xs md:min-w-64'>
+              {[
+                ['Processing', 'in this tab'],
+                ['Uploads', 'none'],
+                ['Accounts', 'none'],
+                ['Storage', 'localStorage only'],
+              ].map(([term, value]) => (
+                <div key={term} className='flex items-baseline justify-between gap-4 border-b border-[var(--border)] pb-2 last:border-b-0'>
+                  <dt className='text-[var(--muted)]'>{term}</dt>
+                  <dd className='text-[var(--foreground)]'>{value}</dd>
                 </div>
-              </div>
+              ))}
+            </dl>
+          </div>
+        </section>
+
+        {/* FAQ */}
+        <section id='faq' className='scroll-mt-24 border-t border-[var(--border)] px-4 py-16 md:py-24'>
+          <div className='mx-auto max-w-3xl'>
+            <p className='mono-label'>Questions</p>
+            <h2 className='font-display mt-2 text-3xl md:text-4xl'>FAQ</h2>
+            <div className='mt-6'>
+              <FAQ />
             </div>
           </div>
         </section>
 
-        {/* FAQ Section */}
-        <section id='faq' className='px-4 py-24 md:py-32 scroll-mt-24'>
-          <div className='max-w-3xl mx-auto'>
-            <div className='text-center mb-12 animate-fade-up'>
-              <span className='inline-block text-xs text-[var(--muted)] uppercase tracking-wider mb-3'>Questions</span>
-              <h2 className='font-display text-3xl md:text-4xl font-bold tracking-tight text-[var(--foreground)]'>
-                FAQ
-              </h2>
-            </div>
-            <FAQ />
-          </div>
-        </section>
-
-        {/* SEO Content */}
-        <section className='px-4 py-16 md:py-24 bg-[var(--surface)]/50'>
-          <div className='max-w-3xl mx-auto'>
-            <div className='card-bezel p-5 animate-fade-up' style={{ animationFillMode: 'both' }}>
-              <div className='card-bezel-inner p-8'>
-                <h2 className='font-display text-2xl font-bold tracking-tight text-[var(--foreground)] mb-4'>
-                  Why keyword matching matters
-                </h2>
-                <div className='space-y-4 text-[var(--muted)] leading-relaxed'>
-                  <p>
-                    Many job descriptions repeat important skills, tools, and responsibilities. When your resume uses relevant language from the role, recruiters and screening systems can more easily see the connection between your experience and the job.
-                  </p>
-                  <p>
-                    This tool helps you identify the gaps so you can make honest, targeted improvements before applying. It is a guide, not a gatekeeper — the goal is to help you present your actual experience more effectively.
-                  </p>
-                </div>
-              </div>
+        {/* Context */}
+        <section className='border-t border-[var(--border)] bg-[var(--surface-2)]/60 px-4 py-14 md:py-16'>
+          <div className='mx-auto max-w-3xl'>
+            <h2 className='font-display text-2xl md:text-3xl'>Why keyword matching matters</h2>
+            <div className='mt-3 space-y-3 text-sm leading-relaxed text-[var(--muted)]'>
+              <p>
+                Job descriptions repeat the skills, tools, and responsibilities that matter. When your resume speaks the same language, recruiters and screening systems can see the connection faster.
+              </p>
+              <p>
+                This tool points at the gaps so you can make honest, targeted edits before applying. It is a guide, not a gatekeeper.
+              </p>
             </div>
           </div>
         </section>
 
-        {/* CTA Section */}
-        <section className='px-4 py-24 md:py-32'>
-          <div className='max-w-3xl mx-auto text-center animate-fade-up'>
-            <h2 className='font-display text-3xl md:text-4xl font-bold tracking-tight text-[var(--foreground)] mb-4'>
-              Ready to match your resume?
-            </h2>
-            <p className='text-[var(--muted)] mb-8 max-w-[50ch] mx-auto'>
-              Paste your resume and a job post above to get instant feedback on your match score.
+        {/* Closing CTA */}
+        <section className='border-t border-[var(--border)] px-4 py-16 md:py-24'>
+          <div className='mx-auto max-w-3xl text-center'>
+            <h2 className='font-display text-3xl md:text-4xl'>Ready to see your gaps?</h2>
+            <p className='mx-auto mt-3 max-w-[46ch] text-sm text-[var(--muted)]'>
+              Paste your resume and a job post to get the score in a few seconds.
             </p>
-            <button
-              type='button'
-              onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-              className='btn-press inline-flex items-center gap-2 px-8 py-4 bg-[var(--foreground)] text-[var(--background)] rounded-full text-base font-medium hover:opacity-90 transition-opacity'
-            >
-              <span>Start matching</span>
-              <svg className='w-4 h-4' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-                <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={1.5} d='M5 10l7-7m0 0l7 7m-7-7v18' />
+            <button type='button' onClick={() => focusTool('resume')} className='btn btn-primary mx-auto mt-6'>
+              Start matching
+              <svg className='h-4 w-4' fill='none' stroke='currentColor' viewBox='0 0 24 24' aria-hidden='true'>
+                <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={1.6} d='M12 19V5m0 0l-6 6m6-6l6 6' />
               </svg>
             </button>
           </div>
         </section>
       </main>
 
-      {/* Footer */}
-      <footer className='px-4 py-8 border-t border-[var(--border)]'>
-        <div className='max-w-5xl mx-auto text-center'>
-          <p className='text-sm text-[var(--muted)] mb-2'>
-            Built for private resume tailoring. Your text is processed locally and is not uploaded.
-          </p>
-          <p className='text-xs text-[var(--muted)] mb-2'>
-            Built by <span className='font-medium text-[var(--foreground)]'>Code Counsel</span> - for more apps please visit{' '}
+      {/* Mobile analyze bar */}
+      {showMobileBar && (
+        <div className='fixed inset-x-0 bottom-0 z-40 border-t border-[var(--border)] bg-[var(--blur-bg)] px-4 py-3 backdrop-blur md:hidden'>
+          <div className='flex items-center gap-3'>
+            <div className='min-w-0 flex-1'>
+              <div className='h-1 w-full overflow-hidden rounded-full bg-[var(--track)]'>
+                <div className='h-full rounded-full bg-[var(--accent)] transition-[width]' style={{ width: `${progress}%` }} />
+              </div>
+              <p className='mt-1.5 truncate text-[0.7rem] text-[var(--muted)]'>{analyzeHint}</p>
+            </div>
+            <button
+              type='button'
+              onClick={handleAnalyze}
+              disabled={!canAnalyze || isAnalyzing}
+              className='btn btn-primary shrink-0 px-4 py-2.5 text-xs'
+            >
+              {isAnalyzing ? 'Scanning' : 'Analyze'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <footer className='border-t border-[var(--border)] px-4 py-8'>
+        <div className='mx-auto flex max-w-5xl flex-col items-center gap-2 text-center'>
+          <p className='font-mono text-[0.6875rem] text-[var(--muted)]'>processed locally / nothing uploaded</p>
+          <p className='text-xs text-[var(--muted)]'>
+            Built by <span className='font-medium text-[var(--foreground)]'>Code Counsel</span> - more apps at{' '}
             <a
               href='https://code-counsel.vercel.app'
               target='_blank'
               rel='noreferrer'
-              className='font-medium text-[var(--foreground)] underline underline-offset-4 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors'
+              className='link-underline font-medium text-[var(--foreground)]'
             >
               code-counsel.vercel.app
             </a>
           </p>
-          <p className='text-xs text-[var(--muted)]'>
-            &copy; {new Date().getFullYear()} ResumeRadar
-          </p>
+          <p className='text-xs text-[var(--muted)]'>&copy; {new Date().getFullYear()} ResumeRadar</p>
         </div>
       </footer>
     </div>

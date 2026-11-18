@@ -23,8 +23,8 @@ function InlineList({ items, empty }: { items: string[]; empty: string }) {
 export function JobInsights({ insights }: JobInsightsProps) {
   return (
     <div>
-      <h4 className='font-display text-sm font-semibold text-[var(--foreground)] mb-2'>Job post insights</h4>
-      <p className='text-xs text-[var(--muted)] mb-4'>Signals extracted from the job post to help you tailor honestly.</p>
+      <h4 className='font-display text-lg'>Job post insights</h4>
+      <p className='mt-1 mb-4 text-xs text-[var(--muted)]'>Signals extracted from the job post to help you tailor honestly.</p>
       <div className='grid gap-4 sm:grid-cols-2'>
         <div>
           <p className='text-xs text-[var(--muted)] mb-1'>Detected role</p>

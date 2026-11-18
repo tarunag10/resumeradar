@@ -13,65 +13,44 @@ export function Toast({ message, type = 'success', onClose, duration = 4000 }: T
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
-    // Trigger enter animation
-    setTimeout(() => setIsVisible(true), 10);
+    const showTimer = window.setTimeout(() => setIsVisible(true), 10);
 
-    // Auto-dismiss
-    const timer = setTimeout(() => {
+    const hideTimer = window.setTimeout(() => {
       setIsVisible(false);
-      setTimeout(onClose, 300); // Wait for exit animation
+      window.setTimeout(onClose, 220);
     }, duration);
 
-    return () => clearTimeout(timer);
+    return () => {
+      window.clearTimeout(showTimer);
+      window.clearTimeout(hideTimer);
+    };
   }, [duration, onClose]);
 
-  const bgColor = {
-    success: 'bg-emerald-500',
-    error: 'bg-red-500',
-    info: 'bg-indigo-500',
-  }[type];
-
-  const icon = {
-    success: (
-      <svg className='w-5 h-5 text-white' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-        <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M5 13l4 4L19 7' />
-      </svg>
-    ),
-    error: (
-      <svg className='w-5 h-5 text-white' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-        <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M6 18L18 6M6 6l12 12' />
-      </svg>
-    ),
-    info: (
-      <svg className='w-5 h-5 text-white' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-        <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' />
-      </svg>
-    ),
+  const tone = {
+    success: 'border-[var(--accent)] text-[var(--accent-ink)] bg-[var(--accent-soft)]',
+    error: 'border-[var(--danger)] text-[var(--danger)] bg-[var(--danger-soft)]',
+    info: 'border-[var(--border-strong)] text-[var(--foreground)] bg-[var(--surface)]',
   }[type];
 
   return (
     <div
-      className={`
-        fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 
-        ${bgColor} text-white rounded-xl shadow-lg
-        transform transition-all duration-300 ease-out
-        ${isVisible ? 'translate-x-0 opacity-100' : 'translate-x-8 opacity-0'}
-      `}
-      role='alert'
-      aria-live='polite'
+      className={`pointer-events-auto flex w-[min(92vw,22rem)] items-start gap-2.5 rounded-xl border px-3.5 py-2.5 shadow-[var(--shadow-md)] backdrop-blur transition-all duration-200 ${tone} ${
+        isVisible ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0'
+      }`}
+      role={type === 'error' ? 'alert' : 'status'}
     >
-      {icon}
-      <span className='text-sm font-medium'>{message}</span>
+      <span className='mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-current' aria-hidden='true' />
+      <span className='flex-1 text-xs font-medium leading-relaxed'>{message}</span>
       <button
         type='button'
         onClick={() => {
           setIsVisible(false);
-          setTimeout(onClose, 300);
+          window.setTimeout(onClose, 220);
         }}
-        className='ml-2 p-1 hover:bg-white/20 rounded-lg transition-colors'
+        className='-mr-1 shrink-0 rounded-md p-1 opacity-60 transition-opacity hover:opacity-100'
         aria-label='Dismiss notification'
       >
-        <svg className='w-4 h-4' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
+        <svg className='h-3.5 w-3.5' fill='none' stroke='currentColor' viewBox='0 0 24 24' aria-hidden='true'>
           <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M6 18L18 6M6 6l12 12' />
         </svg>
       </button>
@@ -79,7 +58,6 @@ export function Toast({ message, type = 'success', onClose, duration = 4000 }: T
   );
 }
 
-// Toast manager for multiple toasts
 interface ToastItem {
   id: string;
   message: string;

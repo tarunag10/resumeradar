@@ -72,7 +72,6 @@ export function ExportActions({ result }: ExportActionsProps) {
           showStatus('Share cancelled');
           return;
         }
-        // Anything else (no handler, permissions) falls back to copying.
       }
     }
 
@@ -84,55 +83,59 @@ export function ExportActions({ result }: ExportActionsProps) {
     }
   };
 
+  const outlineButton = 'rounded-full border border-[var(--border-strong)] px-3 py-1.5 text-xs font-medium transition-colors hover:border-[var(--muted)] hover:bg-[var(--surface-2)]';
+
   return (
-    <div className='card-bezel p-4 animate-fade-up' style={{ animationDelay: '50ms', animationFillMode: 'both' }}>
-      <div className='card-bezel-inner p-4'>
-        <div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'>
-          <div>
-            <h3 className='font-display text-sm font-semibold text-[var(--foreground)]'>Export results</h3>
-            <p className='text-xs text-[var(--muted)] mt-1'>Copy or download the visible analysis as a local report.</p>
-          </div>
-          <div className='flex flex-wrap gap-2'>
-            <button type='button' onClick={copySummary} className='btn-press px-3 py-2 text-xs font-medium rounded-lg border border-[var(--border)] hover:border-[var(--muted)]'>
-              Copy summary
-            </button>
-            <button
-              type='button'
-              onClick={() => {
-                downloadTextFile(buildMarkdownReport(result), createResultFileName('md'), 'text/markdown');
-                showStatus('Markdown downloaded');
-              }}
-              className='btn-press px-3 py-2 text-xs font-medium rounded-lg border border-[var(--border)] hover:border-[var(--muted)]'
-            >
-              Markdown
-            </button>
-            <button
-              type='button'
-              onClick={() => {
-                downloadTextFile(buildPlainTextReport(result), createResultFileName('txt'), 'text/plain');
-                showStatus('Text downloaded');
-              }}
-              className='btn-press px-3 py-2 text-xs font-medium rounded-lg border border-[var(--border)] hover:border-[var(--muted)]'
-            >
-              Text
-            </button>
-            <button
-              type='button'
-              onClick={() => {
-                downloadTextFile(buildJsonReport(result), createResultFileName('json'), 'application/json');
-                showStatus('JSON downloaded');
-              }}
-              className='btn-press px-3 py-2 text-xs font-medium rounded-lg border border-[var(--border)] hover:border-[var(--muted)]'
-            >
-              JSON
-            </button>
-            <button type='button' onClick={shareResult} className='btn-press px-3 py-2 text-xs font-medium rounded-lg bg-[var(--foreground)] text-[var(--background)]'>
-              Share
-            </button>
-          </div>
+    <div className='card p-5 animate-fade-up'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+        <div>
+          <h4 className='font-display text-lg'>Take it with you</h4>
+          <p className='mt-1 text-xs text-[var(--muted)]'>The report is generated here - nothing is uploaded.</p>
         </div>
-        {status && <p className='text-xs text-emerald-600 dark:text-emerald-400 mt-3' role='status'>{status}</p>}
+        <div className='flex flex-wrap gap-1.5'>
+          <button type='button' onClick={copySummary} className={outlineButton}>
+            Copy summary
+          </button>
+          <button
+            type='button'
+            onClick={() => {
+              downloadTextFile(buildMarkdownReport(result), createResultFileName('md'), 'text/markdown');
+              showStatus('Markdown downloaded');
+            }}
+            className={outlineButton}
+          >
+            Markdown
+          </button>
+          <button
+            type='button'
+            onClick={() => {
+              downloadTextFile(buildPlainTextReport(result), createResultFileName('txt'), 'text/plain');
+              showStatus('Text downloaded');
+            }}
+            className={outlineButton}
+          >
+            Text
+          </button>
+          <button
+            type='button'
+            onClick={() => {
+              downloadTextFile(buildJsonReport(result), createResultFileName('json'), 'application/json');
+              showStatus('JSON downloaded');
+            }}
+            className={outlineButton}
+          >
+            JSON
+          </button>
+          <button type='button' onClick={shareResult} className='btn px-3 py-1.5 text-xs btn-primary'>
+            Share
+          </button>
+        </div>
       </div>
+      {status && (
+        <p className='mt-3 text-xs text-[var(--accent)]' role='status'>
+          {status}
+        </p>
+      )}
     </div>
   );
 }

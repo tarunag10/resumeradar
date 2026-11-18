@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { MatchHistoryEntry, getMatchHistory, clearMatchHistory } from '@/lib/matchHistory';
 
 interface MatchHistoryProps {
@@ -12,6 +12,8 @@ export function MatchHistory({ onSelectEntry, refreshSignal = 0 }: MatchHistoryP
   const [history, setHistory] = useState<MatchHistoryEntry[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     setHistory(getMatchHistory());
@@ -20,15 +22,23 @@ export function MatchHistory({ onSelectEntry, refreshSignal = 0 }: MatchHistoryP
   useEffect(() => {
     if (!isOpen) return;
 
+    closeRef.current?.focus();
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setIsOpen(false);
+        triggerRef.current?.focus();
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isOpen]);
+
+  const close = () => {
+    setIsOpen(false);
+    triggerRef.current?.focus();
+  };
 
   const handleClear = () => {
     clearMatchHistory();
@@ -51,121 +61,99 @@ export function MatchHistory({ onSelectEntry, refreshSignal = 0 }: MatchHistoryP
     return date.toLocaleDateString();
   };
 
-  const getScoreColor = (score: number) => {
-    if (score >= 85) return 'text-emerald-600 dark:text-emerald-400';
-    if (score >= 65) return 'text-indigo-600 dark:text-indigo-400';
-    if (score >= 40) return 'text-amber-600 dark:text-amber-400';
-    return 'text-red-600 dark:text-red-400';
-  };
-
-  if (history.length === 0) {
-    return null;
-  }
+  const isEmpty = history.length === 0;
 
   return (
     <div className='relative'>
       <button
+        ref={triggerRef}
         type='button'
-        onClick={() => setIsOpen(!isOpen)}
-        className='flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 border border-gray-300 dark:border-gray-600 rounded-lg hover:border-indigo-400 dark:hover:border-indigo-500 transition-colors whitespace-nowrap'
-        aria-expanded={isOpen}
-        aria-haspopup='true'
+        onClick={() => !isEmpty && setIsOpen(!isOpen)}
+        disabled={isEmpty}
+        className='inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium text-[var(--muted)] transition-colors enabled:hover:border-[var(--border-strong)] enabled:hover:text-[var(--foreground)] disabled:cursor-default disabled:opacity-60'
+        aria-expanded={isEmpty ? undefined : isOpen}
+        aria-haspopup={isEmpty ? undefined : 'dialog'}
+        aria-label={isEmpty ? 'No saved matches yet' : `Saved matches (${history.length})`}
       >
-        <svg className='w-4 h-4' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-          <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' />
+        <svg className='h-3.5 w-3.5' fill='none' stroke='currentColor' viewBox='0 0 24 24' aria-hidden='true'>
+          <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={1.6} d='M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' />
         </svg>
-        <span className='hidden sm:inline'>History ({history.length})</span>
-        <span className='sm:hidden'>{history.length}</span>
+        <span className='tabular'>{history.length}</span>
+        <span className='hidden sm:inline'>saved</span>
       </button>
 
       {isOpen && (
         <>
-          {/* Backdrop */}
-          <div 
-            className='fixed inset-0 z-40' 
-            onClick={() => setIsOpen(false)} 
-          />
-          
-          {/* Panel */}
+          <div className='fixed inset-0 z-40' onClick={close} aria-hidden='true' />
+
           <div
-            className='absolute right-0 top-full mt-2 w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-50 overflow-hidden'
+            className='fixed left-1/2 top-20 z-50 w-[min(92vw,20rem)] -translate-x-1/2 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-md)] sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:translate-x-0'
             role='dialog'
             aria-label='Match history'
           >
-            <div className='flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700'>
-              <h3 className='font-semibold text-gray-900 dark:text-gray-100'>Match History</h3>
+            <div className='flex items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3'>
+              <h3 className='font-display text-base'>Match history</h3>
               <button
+                ref={closeRef}
                 type='button'
-                onClick={() => setIsOpen(false)}
-                className='p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors'
+                onClick={close}
+                className='rounded-lg p-1 text-[var(--muted)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]'
                 aria-label='Close history'
               >
-                <svg className='w-5 h-5' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
+                <svg className='h-4 w-4' fill='none' stroke='currentColor' viewBox='0 0 24 24' aria-hidden='true'>
                   <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M6 18L18 6M6 6l12 12' />
                 </svg>
               </button>
             </div>
 
             <div className='max-h-80 overflow-y-auto'>
-              {history.map((entry) => (
+              {history.map(entry => (
                 <button
                   key={entry.id}
                   type='button'
                   onClick={() => {
                     onSelectEntry?.(entry);
-                    setIsOpen(false);
+                    close();
                   }}
-                  className='w-full p-4 text-left hover:bg-gray-50 dark:hover:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700 last:border-b-0 transition-colors'
+                  className='w-full border-b border-[var(--border)] p-3.5 text-left transition-colors last:border-b-0 hover:bg-[var(--surface-2)]'
                 >
-                  <div className='flex items-start justify-between gap-2 mb-2'>
-                    <span className={`text-lg font-bold ${getScoreColor(entry.matchScore)}`}>
-                      {entry.matchScore}%
-                    </span>
-                    <span className='text-xs text-gray-500 dark:text-gray-400'>
-                      {formatDate(entry.timestamp)}
-                    </span>
+                  <div className='mb-1 flex items-baseline justify-between gap-2'>
+                    <span className='font-display text-xl tabular'>{entry.matchScore}%</span>
+                    <span className='text-[0.7rem] text-[var(--muted)]'>{formatDate(entry.timestamp)}</span>
                   </div>
-                  <p className='text-xs text-gray-600 dark:text-gray-400 mb-1'>
-                    Resume: {entry.resumePreview}
-                  </p>
-                  <p className='text-xs text-gray-600 dark:text-gray-400'>
-                    Job: {entry.jobPostPreview}
-                  </p>
-                  <div className='flex gap-3 mt-2 text-xs text-gray-500 dark:text-gray-400'>
-                    <span>Keywords: {entry.keywordScore}%</span>
-                    <span>Skills: {entry.skillScore}%</span>
+                  <p className='truncate text-xs text-[var(--muted)]'>Resume: {entry.resumePreview}</p>
+                  <p className='truncate text-xs text-[var(--muted)]'>Job: {entry.jobPostPreview}</p>
+                  <div className='mt-1.5 flex gap-3 font-mono text-[0.6875rem] text-[var(--muted)]'>
+                    <span>kw {entry.keywordScore}%</span>
+                    <span>skills {entry.skillScore}%</span>
                   </div>
                 </button>
               ))}
             </div>
 
             {showClearConfirm ? (
-              <div className='p-3 bg-red-50 dark:bg-red-900/20 border-t border-red-200 dark:border-red-800'>
-                <p className='text-xs text-red-700 dark:text-red-300 mb-2'>Clear all history?</p>
+              <div className='border-t border-[var(--border)] bg-[var(--danger-soft)] p-3'>
+                <p className='mb-2 text-xs text-[var(--danger)]'>Clear all saved matches?</p>
                 <div className='flex gap-2'>
                   <button
                     type='button'
                     onClick={handleClear}
-                    className='px-3 py-1 text-xs font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors'
+                    className='rounded-lg bg-[var(--danger)] px-3 py-1 text-xs font-medium text-[var(--background)]'
                   >
                     Clear
                   </button>
                   <button
                     type='button'
                     onClick={() => setShowClearConfirm(false)}
-                    className='px-3 py-1 text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors'
+                    className='rounded-lg border border-[var(--border-strong)] px-3 py-1 text-xs font-medium'
                   >
                     Cancel
                   </button>
                 </div>
               </div>
             ) : (
-              <div className='p-3 border-t border-gray-200 dark:border-gray-700'>
-                <button
-                  type='button'
-                  onClick={() => setShowClearConfirm(true)}
-                  className='text-xs text-gray-500 hover:text-red-600 dark:hover:text-red-400 transition-colors'
-                >
+              <div className='border-t border-[var(--border)] p-2.5'>
+                <button type='button' onClick={() => setShowClearConfirm(true)} className='btn-quiet text-xs'>
                   Clear history
                 </button>
               </div>

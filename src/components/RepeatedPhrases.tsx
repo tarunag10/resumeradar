@@ -15,8 +15,8 @@ export function RepeatedPhrases({ phrases }: RepeatedPhrasesProps) {
   if (phrases.length === 0) {
     return (
       <div>
-        <h4 className='font-display text-sm font-semibold text-[var(--foreground)] mb-2'>Repeated phrases</h4>
-        <div className='flex items-center gap-2'>
+        <h4 className='font-display text-lg'>Repeated phrases</h4>
+        <div className='mt-2 flex items-center gap-2'>
           <svg className='w-5 h-5 text-emerald-500' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
             <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={1.5} d='M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' />
           </svg>
@@ -28,8 +28,8 @@ export function RepeatedPhrases({ phrases }: RepeatedPhrasesProps) {
 
   return (
     <div>
-      <h4 className='font-display text-sm font-semibold text-[var(--foreground)] mb-2'>Repeated phrases</h4>
-      <p className='text-xs text-[var(--muted)] mb-4'>
+      <h4 className='font-display text-lg'>Repeated phrases</h4>
+      <p className='mt-1 mb-4 text-xs text-[var(--muted)]'>
         Too much repetition can make a resume feel generic.
       </p>
       
@@ -37,7 +37,7 @@ export function RepeatedPhrases({ phrases }: RepeatedPhrasesProps) {
         {displayPhrases.map(({ phrase, count, suggestion }) => (
           <div
             key={phrase}
-            className='p-3 rounded-lg bg-[var(--surface)] border border-[var(--border)]'
+            className='rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3'
           >
             <div className='flex items-center justify-between mb-1'>
               <span className='text-sm font-medium text-[var(--foreground)]'>
